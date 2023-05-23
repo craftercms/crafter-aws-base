@@ -1,0 +1,19 @@
+# RENAME THIS FILE TO config.sh BEFORE RUNNING setup.sh, and uncomment the properties 
+# !!! NEVER COMMIT THIS FILE IF YOU HAVE ALREADY EDITED THE PROPERTIES. YOU WILL BE COMMITING SENSITIVE DATA !!!
+# Enter here config for scripts
+# -----------------------------
+
+# Required
+export ENVIRONMENT=default
+# Leave always empty
+export AWS_PAGER=
+# Required
+export AWS_PROFILE=
+# Required
+export AWS_DEFAULT_REGION=
+# Required (use a no more than 5 letters acronym if possible)
+export CLIENT_ID=
+# Required
+export S3_BUCKET_NAME_PREFIX=$CLIENT_ID-crafter-$ENVIRONMENT
+# Required
+export CLOUDFRONT_LOGGING_S3_BUCKET_NAME=$S3_BUCKET_NAME_PREFIX-cloudfront-logs

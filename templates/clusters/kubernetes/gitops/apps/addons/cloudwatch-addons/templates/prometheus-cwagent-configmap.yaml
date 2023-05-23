@@ -1,0 +1,49 @@
+# create configmap for prometheus cwagent config
+apiVersion: v1
+data:
+  # cwagent json config
+  cwagentconfig.json: |
+    {
+      "logs": {
+        "metrics_collected": {
+          "prometheus": {
+            "prometheus_config_path": "/etc/prometheusconfig/prometheus.yaml",
+            "emf_processor": {
+              "metric_declaration": [
+                {
+                  "source_labels": ["persistentvolumeclaim"],
+                  "label_matcher": ".*",
+                  "dimensions": [["ClusterName", "NodeGroup", "NodeName", "persistentvolumeclaim"]],
+                  "metric_selectors": [
+                    "^kubelet_volume_stats_available_bytes$",
+                    "^kubelet_volume_stats_capacity_bytes$",
+                    "^kubelet_volume_stats_inodes$",
+                    "^kubelet_volume_stats_inodes_free$",
+                    "^kubelet_volume_stats_inodes_used$",
+                    "^kubelet_volume_stats_used_bytes$"
+                  ]
+                },
+                {
+                  "source_labels": ["persistentvolumeclaim"],
+                  "label_matcher": ".*",
+                  "dimensions": [["ClusterName", "NodeGroup", "persistentvolumeclaim"]],
+                  "metric_selectors": [
+                    "^kubelet_volume_stats_available_bytes$",
+                    "^kubelet_volume_stats_capacity_bytes$",
+                    "^kubelet_volume_stats_inodes$",
+                    "^kubelet_volume_stats_inodes_free$",
+                    "^kubelet_volume_stats_inodes_used$",
+                    "^kubelet_volume_stats_used_bytes$"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "force_flush_interval": 5
+      }
+    }
+kind: ConfigMap
+metadata:
+  name: prometheus-cwagentconfig
+  namespace: amazon-cloudwatch

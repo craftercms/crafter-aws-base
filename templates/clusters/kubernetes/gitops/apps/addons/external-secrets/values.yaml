@@ -1,0 +1,13 @@
+awsRegion: {{aws_region}}
+external-secrets:
+  serviceAccount:
+    create: false
+    name: external-secrets
+  nodeSelector:
+    node-type: k8s-support
+  certController:
+    nodeSelector:
+      node-type: k8s-support
+  webhook:
+    nodeSelector:
+      node-type: k8s-support

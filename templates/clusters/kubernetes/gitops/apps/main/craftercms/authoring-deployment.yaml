@@ -1,0 +1,510 @@
+# Comment on multi-region (supplementary region)
+# ALB Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: authoring-ingress
+  annotations:
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/healthcheck-port: '8080'
+    alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+    alb.ingress.kubernetes.io/healthcheck-path: /studio/api/2/monitoring/status.json?token={{crafter_management_token}}
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: '30'
+    alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=600
+    # # Uncomment after generating the SSL cert and validating it
+    # alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS":443}]'
+    # alb.ingress.kubernetes.io/ssl-redirect: '443'
+    # alb.ingress.kubernetes.io/certificate-arn: ''
+spec:
+  ingressClassName: alb
+  rules:
+    - http:
+        paths:
+          - path: /*
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: authoring-service
+                port:
+                  number: 8080
+---
+# # Uncomment on multi-region (main region)
+# # ALB Ingress for the Git HTTPS Server
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   name: authoring-git-https-ingress
+#   annotations:
+#     alb.ingress.kubernetes.io/target-type: ip
+#     alb.ingress.kubernetes.io/scheme: internet-facing
+#     # Uncomment and specify the Elastic IPs of the other regions NATs
+#     alb.ingress.kubernetes.io/inbound-cidrs: ''
+#     alb.ingress.kubernetes.io/healthcheck-port: '443'
+#     alb.ingress.kubernetes.io/healthcheck-protocol: HTTPS
+#     alb.ingress.kubernetes.io/healthcheck-path: /
+#     alb.ingress.kubernetes.io/healthcheck-interval-seconds: '30'
+#     alb.ingress.kubernetes.io/backend-protocol: HTTPS
+#     alb.ingress.kubernetes.io/success-codes: '401'
+#     alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=4000
+#     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS":443}]'
+#     alb.ingress.kubernetes.io/ssl-redirect: '443'
+#     alb.ingress.kubernetes.io/certificate-arn: ''    
+# spec:
+#   ingressClassName: alb
+#   rules:
+#     - http:
+#         paths:
+#           - path: /*
+#             pathType: ImplementationSpecific
+#             backend:
+#               service:
+#                 name: authoring-service
+#                 port:
+#                   number: 443  
+# ---
+# Authoring Headless service, needed for stable DNS entries of StatefulSet members.
+apiVersion: v1
+kind: Service
+metadata:
+  name: authoring-service
+spec:
+  clusterIP: None
+  selector:
+    component: authoring
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+    # # Uncomment on multi-region (main region)
+    # - name: git-https
+    #   protocol: TCP
+    #   port: 443
+    #   targetPort: 443
+---
+# Authoring Deployment
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: authoring
+spec:
+  serviceName: authoring-service
+  replicas: 1
+  selector:
+    matchLabels:
+      component: authoring
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        storageClassName: expandable-gp3
+        resources:
+          requests:
+            storage: 100Gi
+    - metadata:
+        name: logs
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        storageClassName: expandable-gp3
+        resources:
+          requests:
+            storage: 20Gi
+  template:
+    metadata:
+      labels:
+        component: authoring
+    spec:
+      serviceAccountName: authoring
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: "OnRootMismatch"
+      nodeSelector:
+        node-type: authoring
+      volumes:
+        # # Uncomment on multi-region (main region)
+        # - name: git-https-server-cert
+        #   secret:
+        #     secretName: git-https-server-ssl-cert
+        - name: mail-user-credentials
+          secret:
+            secretName: mail-user-credentials
+        - name: config-encryption-key-salt
+          secret:
+            secretName: config-encryption-key-salt
+        - name: system-encryption-key-salt
+          secret:
+            secretName: system-encryption-key-salt 
+        - name: crafter-license
+          secret:
+            secretName: crafter-license
+        - name: gitconfig
+          configMap:
+            name: gitconfig
+        - name: studio-config
+          configMap:
+            name: authoring-studio-config
+        - name: engine-config
+          configMap:
+            name: authoring-engine-config
+        - name: tomcat-config
+          configMap:
+            name: authoring-tomcat-config
+        - name: deployer-config
+          configMap:
+            name: authoring-deployer-config
+        - name: temp
+          emptyDir: {}
+      containers:
+        # Comment on multi-region (supplementary region)
+        # Tomcat container
+        - name: tomcat
+          image: craftercms/authoring_tomcat:latest
+          imagePullPolicy: "Always"
+          startupProbe:
+            httpGet:
+              path: /studio/api/2/monitoring/status.json?token={{crafter_management_token}}
+              port: 8080
+            failureThreshold: 60
+            periodSeconds: 60
+          readinessProbe:
+            httpGet:
+              path: /studio/api/2/monitoring/status.json?token={{crafter_management_token}}
+              port: 8080
+            failureThreshold: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /studio/api/2/monitoring/status.json?token={{crafter_management_token}}
+              port: 8080
+            failureThreshold: 10
+            timeoutSeconds: 60
+            periodSeconds: 60
+          resources:
+            requests:
+              cpu: {{authoring_tomcat_container_min_cpu}}
+              memory: {{authoring_tomcat_container_min_memory}}
+            limits:
+              cpu: {{authoring_tomcat_container_max_cpu}}
+              memory: {{authoring_tomcat_container_max_memory}}             
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: gitconfig
+              subPath: .gitconfig
+              mountPath: /home/crafter/.gitconfig
+              readOnly: true              
+            - name: crafter-license
+              subPath: crafter.lic
+              mountPath: /opt/crafter/bin/apache-tomcat/shared/classes/crafter/license/crafter.lic
+              readOnly: true
+            - name: data
+              mountPath: /opt/crafter/data
+            - name: temp
+              mountPath: /opt/crafter/temp
+            - name: logs
+              mountPath: /opt/crafter/logs
+            - name: studio-config
+              subPath: logging.xml
+              mountPath: /opt/crafter/bin/apache-tomcat/shared/classes/crafter/studio/extension/logging.xml
+            - name: studio-config
+              subPath: studio-config-override.yaml
+              mountPath: /opt/crafter/bin/apache-tomcat/shared/classes/crafter/studio/extension/studio-config-override.yaml
+              readOnly: true
+            - name: engine-config
+              subPath: logging.xml
+              mountPath: /opt/crafter/bin/apache-tomcat/shared/classes/crafter/engine/extension/logging.xml
+            - name: engine-config
+              subPath: server-config.properties
+              mountPath: /opt/crafter/bin/apache-tomcat/shared/classes/crafter/engine/extension/server-config.properties
+              readOnly: true
+            - name: tomcat-config
+              subPath: server.xml
+              mountPath: /opt/crafter/bin/apache-tomcat/conf/server.xml
+              readOnly: true
+          env:
+            - name: CRAFTER_ENVIRONMENT
+              value: "{{environment}}"
+            - name: ENVIRONMENT_VERSION
+              value: "{{environment_version}}"
+            - name: AWS_DEFAULT_REGION
+              value: "{{aws_region}}"                  
+            - name: CATALINA_OPTS
+              value: "-server -Xss1024K -XX:MaxRAMPercentage=75.0"
+            - name: MARIADB_SOCKET_TIMEOUT
+              value: '600000'
+            - name: MARIADB_INITIAL_CONNECTIONS
+              value: '50'
+            - name: MARIADB_MAX_ACTIVE_CONNECTIONS
+              value: '200'
+            - name: S3_BUCKET_NAME_PREFIX
+              value: "{{s3_current_region_bucket_name_prefix}}"
+            - name: ES_URL
+              value: "{{es_url}}"
+            - name: MAIL_ADDRESS
+              value: "{{mail_address}}"
+            - name: MAIL_HOST
+              value: "{{mail_host}}"                  
+            - name: MAIL_PORT
+              value: "{{mail_port}}"
+            - name: MAIL_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: mail-user-credentials
+                  key: username
+            - name: MAIL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mail-user-credentials
+                  key: password
+            - name: MAIL_SMTP_AUTH
+              value: "{{mail_smtp_auth}}"
+            - name: MAIL_SMTP_STARTTLS
+              value: "{{mail_smtp_starttls}}"
+            - name: STUDIO_MANAGEMENT_TOKEN
+              value: "{{crafter_management_token}}"
+            - name: ENGINE_MANAGEMENT_TOKEN
+              value: "{{crafter_management_token}}"
+            - name: DEPLOYER_MANAGEMENT_TOKEN
+              value: "{{crafter_management_token}}"
+            - name: CRAFTER_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: config-encryption-key-salt
+                  key: key
+            - name: CRAFTER_ENCRYPTION_SALT
+              valueFrom:
+                secretKeyRef:
+                  name: config-encryption-key-salt
+                  key: salt
+            - name: CRAFTER_SYSTEM_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: system-encryption-key-salt
+                  key: key
+            - name: CRAFTER_SYSTEM_ENCRYPTION_SALT
+              valueFrom:
+                secretKeyRef:
+                  name: system-encryption-key-salt
+                  key: salt
+            - name: DEPLOYER_NOTIFICATION_EMAIL_ADDRESSES
+              value: "{{deployer_notification_email_addresses}}"
+            - name: DEPLOYER_STATUS_TO_NOTIFY_ON
+              value: "ON_TOTAL_FAILURE"
+        # Deployer container
+        - name: deployer
+          image: craftercms/deployer:latest
+          imagePullPolicy: "Always"
+          startupProbe:
+            httpGet:
+              path: /api/1/monitoring/status?token={{crafter_management_token}}
+              port: 9191
+            failureThreshold: 60
+            periodSeconds: 60
+          readinessProbe:
+            httpGet:
+              path: /api/1/monitoring/status?token={{crafter_management_token}}
+              port: 9191
+            failureThreshold: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/1/monitoring/status?token={{crafter_management_token}}
+              port: 9191
+            failureThreshold: 10
+            timeoutSeconds: 60
+            periodSeconds: 60
+          resources:
+            requests:
+              cpu: {{authoring_deployer_container_min_cpu}}
+              memory: {{authoring_deployer_container_min_memory}}
+            limits:
+              cpu: {{authoring_deployer_container_max_cpu}}
+              memory: {{authoring_deployer_container_max_memory}}
+          ports:
+            - containerPort: 9191
+          volumeMounts:
+            - name: gitconfig
+              subPath: .gitconfig
+              mountPath: /home/crafter/.gitconfig
+              readOnly: true
+            - name: data
+              mountPath: /opt/crafter/data
+            - name: temp
+              mountPath: /opt/crafter/temp
+            - name: logs
+              mountPath: /opt/crafter/logs
+            - name: deployer-config
+              subPath: logging.xml
+              mountPath: /opt/crafter/bin/crafter-deployer/logging.xml
+            - name: deployer-config
+              subPath: application.yaml
+              mountPath: /opt/crafter/bin/crafter-deployer/config/application.yaml
+              readOnly: true
+            - name: deployer-config
+              subPath: base-target.yaml
+              mountPath: /opt/crafter/bin/crafter-deployer/config/base-target.yaml
+              readOnly: true
+            - name: deployer-config
+              subPath: s3-main-target-template.yaml
+              mountPath: /opt/crafter/bin/crafter-deployer/config/templates/targets/s3-main-target-template.yaml
+              readOnly: true
+            - name: deployer-config
+              subPath: s3-supplementary-target-template.yaml
+              mountPath: /opt/crafter/bin/crafter-deployer/config/templates/targets/s3-supplementary-target-template.yaml
+              readOnly: true
+            - name: deployer-config
+              subPath: main-site-stack.yaml
+              mountPath: /opt/crafter/bin/crafter-deployer/config/aws/cloudformation/main-site-stack.yaml
+              readOnly: true
+            - name: deployer-config
+              subPath: supplementary-site-stack.yaml
+              mountPath: /opt/crafter/bin/crafter-deployer/config/aws/cloudformation/supplementary-site-stack.yaml
+              readOnly: true
+          env:
+            - name: CLIENT_ID
+              value: "{{client_id}}"
+            - name: CRAFTER_ENVIRONMENT
+              value: "{{environment}}"
+            - name: ENVIRONMENT_VERSION
+              value: "{{environment_version}}"            
+            - name: CLOUDFORMATION_STACK_NAME_PREFIX
+              value: "{{site_cloudformation_stack_name_prefix}}"
+            - name: S3_REPLICATION_ROLE_ARN
+              value: "{{s3_replication_role_arn}}"
+            - name: S3_BACKUP_BUCKET_LAMBDA_ARN
+              value: "arn:aws:lambda:{{aws_region}}:{{aws_account_id}}:function:{{cluster_name}}-s3-backup-bucket-lambda"
+            - name: S3_BUCKET_NAME_PREFIX
+              value: "{{s3_current_region_bucket_name_prefix}}"
+            - name: S3_BACKUP_BUCKET_NAME_PREFIX
+              value: "{{s3_backup_region_bucket_name_prefix}}"              
+            - name: DELIVERY_LB_DOMAIN_NAME
+              value: "{{delivery_domain_name}}"
+            - name: CLOUDFRONT_SECRET_HEADER_NAME
+              value: "X-CloudFront-{{cloudfront_secret_header_name_suffix}}"
+            - name: CLOUDFRONT_SECRET_HEADER_VALUE
+              value: "{{cloudfront_secret_header_value}}"
+            - name: CLOUDFRONT_LOGGING_S3_BUCKET_NAME
+              value: "{{cloudfront_logging_s3_bucket_name}}"
+            - name: CLOUDFRONT_ORIGIN_ACCESS_IDENTITY_ID
+              value: "{{cloudfront_oai_id}}"
+            - name: AWS_DEFAULT_REGION
+              value: "{{aws_region}}"
+            - name: AWS_BACKUP_REGION
+              value: "{{aws_backup_region}}"
+            - name: ENABLE_BLOBS_BUCKETS_CREATION
+              value: "{{enable_blobs_buckets_creation}}"
+            - name: ENABLE_BACKUP_BUCKETS_CREATION
+              value: "{{enable_backup_buckets_creation}}"
+            - name: ENABLE_S3_ORIGIN_FAILOVER
+              value: "{{enable_s3_origin_failover}}"
+            - name: DISABLE_BUCKET_CLEAR_ON_TARGET_DELETION
+              value: "{{disable_bucket_clear_on_target_deletion}}"
+            - name: DISABLE_CLOUDFORMATION_DELETION_ON_TARGET_DELETION
+              value: "{{disable_cloudformation_deletion_on_target_deletion}}"                                            
+            - name: DEPLOYER_JAVA_OPTS
+              value: "-server -Xss1024K -Xms1G -XX:MaxRAMPercentage=75.0"
+            - name: ES_URL
+              value: "{{es_url}}"
+            - name: ES_CONNECT_TIMEOUT
+              # 10 secs
+              value: "10000"
+            - name: ES_SOCKET_TIMEOUT
+              # 30 minutes
+              value: "1800000"
+            - name: ENGINE_MANAGEMENT_TOKEN
+              value: "{{crafter_management_token}}"
+            - name: DEPLOYER_MANAGEMENT_TOKEN
+              value: "{{crafter_management_token}}"
+            - name: CRAFTER_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: config-encryption-key-salt
+                  key: key
+            - name: CRAFTER_ENCRYPTION_SALT
+              valueFrom:
+                secretKeyRef:
+                  name: config-encryption-key-salt
+                  key: salt
+            - name: MAIL_ADDRESS
+              value: "{{mail_address}}"
+            - name: MAIL_HOST
+              value: "{{mail_host}}"                  
+            - name: MAIL_PORT
+              value: "{{mail_port}}"
+            - name: MAIL_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: mail-user-credentials
+                  key: username
+            - name: MAIL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mail-user-credentials
+                  key: password
+            - name: MAIL_SMTP_AUTH
+              value: "{{mail_smtp_auth}}"
+            - name: MAIL_SMTP_STARTTLS
+              value: "{{mail_smtp_starttls}}"
+            - name: SCHEDULED_DEPLOYMENTS_CRON
+              # Run deployments every 10 secs
+              value: '*/10 * * * * *'
+            # # Uncomment on multi-region (supplementary region)
+            # - name: GIT_HTTPS_SERVER_BASE_URL
+            #   value: ''
+            # - name: GIT_HTTPS_SERVER_USERNAME
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: git-https-server-credentials
+            #       key: username
+            # - name: GIT_HTTPS_SERVER_PASSWORD
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: git-https-server-credentials
+            #       key: password
+        # # Uncomment on multi-region (main region)
+        # # Git HTTPS server container
+        # - name: git-https-server
+        #   image: craftercms/git_https_server:latest
+        #   imagePullPolicy: "Always"
+        #   resources:
+        #     requests:
+        #       cpu: 1
+        #       memory: 2Gi
+        #     limits:
+        #       cpu: 2
+        #       memory: 2Gi
+        #   ports:
+        #     - containerPort: 443
+        #   volumeMounts:
+        #     - name: git-https-server-cert
+        #       subPath: server.crt
+        #       mountPath: /usr/local/apache2/conf/server.crt
+        #       readOnly: true
+        #     - name: git-https-server-cert
+        #       subPath: server.key
+        #       mountPath: /usr/local/apache2/conf/server.key
+        #       readOnly: true
+        #     - name: data
+        #       mountPath: /opt/crafter/data
+        #   env:
+        #     - name: GIT_USERNAME
+        #       valueFrom:
+        #         secretKeyRef:
+        #           name: git-https-server-credentials
+        #           key: username
+        #     - name: GIT_PASSWORD
+        #       valueFrom:
+        #         secretKeyRef:
+        #           name: git-https-server-credentials
+        #           key: password
+        - name: logrotate
+          image: craftercms/logrotate:latest
+          imagePullPolicy: "Always"
+          volumeMounts:
+            - name: logs
+              mountPath: /opt/crafter/logs
+          env:
+            - name: CRON_SCHEDULE
+              # Every hour
+              value: '0 * * * *'

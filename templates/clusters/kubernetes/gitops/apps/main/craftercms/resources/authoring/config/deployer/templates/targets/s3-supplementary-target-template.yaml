@@ -1,0 +1,103 @@
+version: '1.7'
+aws:
+  accessKey: {{#if aws.default_access_key}}{{aws.default_access_key}}{{else}}''{{/if}}
+  secretKey: {{#if aws.default_secret_key}}{{aws.default_secret_key}}{{else}}''{{/if}}
+  cloudformation:
+    accessKey: {{#if aws.cloudformation.access_key}}{{aws.cloudformation.access_key}}{{else}}${aws.accessKey}{{/if}}
+    secretKey: {{#if aws.cloudformation.secret_key}}{{aws.cloudformation.secret_key}}{{else}}${aws.secretKey}{{/if}}
+    stackName: ${aws.cloudformation.stackNamePrefix}-site-{{site_name}}
+    s3SiteBucketName: ${aws.cloudformation.s3BucketNamePrefix}-site-{{site_name}}
+    s3Url: s3://${aws.cloudformation.s3SiteBucketName}/${environmentVersion}
+    disableCloudformationDelete: ${aws.disableCloudFormationDeletion}
+    disableS3BucketClear: ${aws.disableS3BucketClear}
+  {{#if aws.threads}}
+  threads:
+    {{#if aws.threads.size}}size: {{aws.threads.size}}{{/if}}
+    {{#if aws.threads.max}}max: {{aws.threads.max}}{{/if}}
+  {{/if}}
+target:
+  env: {{env}}
+  siteName: {{site_name}}
+  localRepoPath: {{local_repo_path}}
+  {{#if elastic_search_url}}
+  search:
+    elasticsearch:
+      urls:
+        - {{elastic_search_url}}
+  {{/if}}
+  lifecycleHooks:
+    create:
+      - hookName: createIndexLifecycleHook
+      - hookName: createCloudFormationLifecycleHook
+        region: ${aws.region}
+        accessKey: ${aws.cloudformation.accessKey}
+        secretKey: ${aws.cloudformation.secretKey}
+        stackName: ${aws.cloudformation.stackName}
+        templateFilename: supplementary-site-stack.yaml
+        templateParams:  
+          SiteName: ${target.siteName}
+          EnvironmentVersion: ${environmentVersion}
+          S3SiteBucketName: ${aws.cloudformation.s3SiteBucketName}
+          CloudFrontOriginAccessIdentityId: ${aws.cloudformation.cloudFrontOriginAccessIdentityId}
+    init:
+      - hookName: waitTillCloudFormationStackUsableLifecycleHook
+        region: ${aws.region}
+        accessKey: ${aws.cloudformation.accessKey}
+        secretKey: ${aws.cloudformation.secretKey}
+        stackName: ${aws.cloudformation.stackName}
+    delete:
+      - hookName: deleteIndexLifecycleHook
+      - hookName: clearS3BucketLifecycleHook
+        disabled: ${aws.cloudformation.disableS3BucketClear}
+        region: ${aws.region}
+        accessKey: ${aws.cloudformation.accessKey}
+        secretKey: ${aws.cloudformation.secretKey}
+        bucketName: ${aws.cloudformation.s3SiteBucketName}
+      - hookName: deleteCloudFormationLifecycleHook
+        disabled: ${aws.cloudformation.disableCloudformationDelete}
+        region: ${aws.region}
+        accessKey: ${aws.cloudformation.accessKey}
+        secretKey: ${aws.cloudformation.secretKey}
+        stackName: ${aws.cloudformation.stackName}
+  deployment:
+    {{#if disable_deploy_cron}}
+    scheduling:
+       enabled: false
+    {{/if}}
+    pipeline:
+      # -------------------- START OF MAIN PIPELINE --------------------
+      - processorName: gitPullProcessor
+        remoteRepo:
+          url: {{#if repo_url}}{{repo_url}}{{else}}${git.httpsServer.baseUrl}/{{repo_name}}/published{{/if}}
+          branch: {{#if repo_branch}}{{repo_branch}}{{else}}live{{/if}}
+          username: {{#if repo_username}}{{repo_username}}{{else}}${git.httpsServer.username}{{/if}}
+          password: {{#if repo_username}}{{repo_username}}{{else}}${git.httpsServer.password}{{/if}}
+      - processorName: gitDiffProcessor
+      - processorName: s3SyncProcessor
+        ignoreBlobs: {{#if ignore_blobs}}{{ignore_blobs}}{{else}}true{{/if}}
+        region: ${aws.region}
+        accessKey: ${aws.accessKey}
+        secretKey: ${aws.secretKey}
+        url: ${aws.cloudformation.s3Url}
+      - processorName: fileBasedDeploymentEventProcessor
+        includeFiles: ["^/?config/.*$", "^/?scripts/.*$"]
+        excludeFiles: ['^/config/studio/content-types/.*$']
+        eventName: 'events.deployment.rebuildContext'
+      - processorName: fileBasedDeploymentEventProcessor
+        eventName: 'events.deployment.clearCache'
+      - processorName: fileBasedDeploymentEventProcessor
+        includeFiles: ['^/config/studio/content-types/.*$']
+        eventName: 'events.deployment.rebuildGraphQL'
+      - processorName: s3DeploymentEventsProcessor
+        region: ${aws.region}
+        accessKey: ${aws.accessKey}
+        secretKey: ${aws.secretKey}
+        url: ${aws.cloudformation.s3Url}
+      - processorName: elasticsearchIndexingProcessor
+      # -------------------- END OF MAIN PIPELINE --------------------
+      - processorName: fileOutputProcessor
+      {{#if notifications.addresses}}
+      - processorName: mailNotificationProcessor
+        status: {{#if notifications.status}}{{notifications.status}}{{else}}ON_TOTAL_FAILURE{{/if}}
+        to: {{notifications.addresses}}
+      {{/if}}

@@ -1,0 +1,34 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cluster-autoscaler
+  namespace: argocd
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+spec:
+  destination:
+    namespace: kube-system
+    server: {{ .Values.spec.destination.server }}
+  project: {{ .Values.spec.project }}
+  source:
+    repoURL: 'https://kubernetes.github.io/autoscaler'
+    chart: cluster-autoscaler
+    targetRevision: 9.28.0
+    helm:
+      values: |
+        nodeSelector:
+          node-type: k8s-support
+        cloudProvider: aws
+        awsRegion: {{aws_region}}
+        autoDiscovery:
+          clusterName: {{cluster_name}}
+        rbac:
+          create: true
+          serviceAccount:
+            create: false
+            name: cluster-autoscaler
+        extraArgs:
+          skip-nodes-with-local-storage: false
+          skip-nodes-with-system-pods: false
+          expander: least-waste
+          balance-similar-node-groups: true

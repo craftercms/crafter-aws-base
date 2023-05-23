@@ -1,0 +1,242 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  version: "{{eks_version}}"
+  name: {{cluster_name}}
+  region: {{aws_region}}
+
+availabilityZones: ["{{aws_az_1}}", "{{aws_az_2}}", "{{aws_az_3}}"]
+
+vpc:
+  cidr: {{vpc_cidr}}
+  nat:
+    gateway: {{nat_gateway_mode}}
+  publicAccessCIDRs: {{cluster_public_access_cidrs}}
+  clusterEndpoints:
+    publicAccess: true
+    privateAccess: true
+
+iam:
+  withOIDC: true
+  serviceAccounts:
+    - metadata:
+        name: ebs-csi-controller
+        namespace: kube-system
+      wellKnownPolicies:
+        ebsCSIController: true
+    - metadata:
+        name: cluster-autoscaler
+        namespace: kube-system
+        labels: {aws-usage: "cluster-ops"}
+      wellKnownPolicies:
+        autoScaler: true
+    - metadata:
+        name: aws-load-balancer-controller
+        namespace: kube-system
+      wellKnownPolicies:
+        awsLoadBalancerController: true
+    - metadata:
+        name: upgrade-nodegroups
+        namespace: kube-admin-jobs
+      attachPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: cloudformation:ListStacks
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - eks:UpdateNodegroupVersion
+              - eks:DescribeNodegroup
+              - eks:ListNodegroups
+              - eks:ListUpdates
+              - eks:DescribeUpdate
+              - eks:DescribeCluster
+            Resource:
+              - "arn:aws:eks:{{aws_region}}:{{aws_account_id}}:cluster/{{cluster_name}}"
+              - "arn:aws:eks:{{aws_region}}:{{aws_account_id}}:nodegroup/{{cluster_name}}/*/*"
+    - metadata:
+        name: cloudwatch-addons
+        namespace: amazon-cloudwatch
+      attachPolicy:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+            - 'cloudwatch:PutMetricData'
+            - 'ec2:DescribeVolumes'
+            - 'ec2:DescribeTags'
+            - 'logs:PutLogEvents'
+            - 'logs:DescribeLogStreams'
+            - 'logs:DescribeLogGroups'
+            - 'logs:CreateLogStream'
+            - 'logs:CreateLogGroup'
+            - 'logs:PutRetentionPolicy'
+          Resource: "*"
+        - Effect: Allow
+          Action:
+            - 'ssm:GetParameter'
+          Resource: "arn:aws:ssm:*:*:parameter/AmazonCloudWatch-*"
+    - metadata:
+        name: external-secrets
+        namespace: external-secrets
+      attachPolicy:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'secretsmanager:GetResourcePolicy'
+              - 'secretsmanager:GetSecretValue'
+              - 'secretsmanager:DescribeSecret'
+              - 'secretsmanager:ListSecretVersionIds'
+            Resource: "arn:aws:secretsmanager:{{aws_region}}:{{aws_account_id}}:secret:{{cluster_name}}/*"
+    - metadata:
+        name: authoring
+        namespace: craftercms
+      attachPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'cloudformation:CreateStack'
+              - 'cloudformation:DescribeStacks'
+              - 'cloudformation:DeleteStack'
+            Resource: "arn:aws:cloudformation:*:{{aws_account_id}}:stack/{{site_cloudformation_stack_name_prefix}}-*/*"
+          - Effect: Allow
+            Action:
+              - 'cloudfront:CreateDistribution'
+              - 'cloudfront:GetDistribution'
+              - 'cloudfront:GetDistributionConfig'
+              - 'cloudfront:UpdateDistribution'
+              - 'cloudfront:DeleteDistribution'
+              - 'cloudfront:CreateInvalidation'
+              - 'cloudfront:TagResource'
+              - 'cloudfront:UntagResource'
+            Resource: "arn:aws:cloudfront::{{aws_account_id}}:distribution/*"
+          - Effect: Allow
+            Action:
+              - 'cloudfront:CreateCloudFrontOriginAccessIdentity'
+              - 'cloudfront:GetCloudFrontOriginAccessIdentityConfig'
+              - 'cloudfront:GetCloudFrontOriginAccessIdentity'
+              - 'cloudfront:DeleteCloudFrontOriginAccessIdentity'
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - 's3:CreateBucket'
+              - 's3:ListBucket'
+              - 's3:DeleteBucket'
+              - 's3:GetBucketLocation'
+              - 's3:GetBucketPolicy'
+              - 's3:PutBucketPolicy'
+              - 's3:DeleteBucketPolicy'
+              - 's3:PutBucketCORS'
+              - 's3:GetObject'
+              - 's3:PutObject'
+              - 's3:DeleteObject'
+              - 's3:PutBucketPublicAccessBlock'
+              - 's3:GetBucketAcl'
+              - 's3:PutBucketAcl'
+              - 's3:PutBucketVersioning'
+              - 's3:PutReplicationConfiguration'
+              - 's3:ListBucketVersions'
+              - 's3:GetObjectVersion'
+              - 's3:DeleteObjectVersion'
+            Resource: 
+              - "arn:aws:s3:::{{s3_bucket_name_base_prefix}}-r?-*"
+          - Effect: Allow
+            Action:
+              - 's3:GetBucketAcl'
+              - 's3:PutBucketAcl'
+            Resource:
+              - "arn:aws:s3:::{{cloudfront_logging_s3_bucket_name}}"
+          - Effect: Allow
+            Action:
+              - 'iam:GetRole'
+              - 'iam:PassRole'
+            Resource: "{{s3_replication_role_arn}}"
+          - Effect: Allow
+            Action:
+              - 'lambda:InvokeFunction'
+            Resource: "arn:aws:lambda:{{aws_region}}:{{aws_account_id}}:function:{{cluster_name}}-s3-backup-bucket-lambda"
+    - metadata:
+        name: delivery
+        namespace: craftercms
+      attachPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: s3:ListAllMyBuckets
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - 's3:ListBucket'
+              - 's3:GetBucketLocation'
+              - 's3:GetObject'
+            Resource: "arn:aws:s3:::{{s3_current_region_bucket_name_prefix}}-*"
+
+fargateProfiles:
+  - name: fp-kube-admin-jobs
+    selectors:
+      # All workloads in the "kube-admin-jobs" Kubernetes namespace will be
+      # scheduled onto Fargate:
+      - namespace: kube-admin-jobs
+
+managedNodeGroups:
+  # K8s support workers
+  - name: k8s-support-workers-az1-v1
+    tags:
+      # EC2 tags required for cluster-autoscaler auto-discovery
+      k8s.io/cluster-autoscaler/enabled: "true"
+      k8s.io/cluster-autoscaler/{{cluster_name}}: "owned"
+    labels:
+      node-type: k8s-support
+    instanceType: t3a.large
+    availabilityZones: ["{{aws_az_1}}"]
+    minSize: 1
+    maxSize: 3
+    volumeSize: 20
+    privateNetworking: true
+
+  - name: k8s-support-workers-az2-v1
+    tags:
+      # EC2 tags required for cluster-autoscaler auto-discovery
+      k8s.io/cluster-autoscaler/enabled: "true"
+      k8s.io/cluster-autoscaler/{{cluster_name}}: "owned"
+    labels:
+      node-type: k8s-support
+    instanceType: t3a.large
+    availabilityZones: ["{{aws_az_2}}"]
+    minSize: 1
+    maxSize: 3
+    volumeSize: 20
+    privateNetworking: true
+
+  # Authoring workers
+  - name: authoring-workers-az1-v1
+    tags:
+      # EC2 tags required for cluster-autoscaler auto-discovery
+      k8s.io/cluster-autoscaler/enabled: "true"
+      k8s.io/cluster-autoscaler/{{cluster_name}}: "owned"
+    labels:
+      node-type: authoring
+    instanceType: {{authoring_worker_instance_type}}
+    availabilityZones: ["{{aws_az_1}}"]
+    minSize: 1
+    maxSize: 10
+    volumeSize: 50
+    privateNetworking: true
+
+  # Delivery workers
+  - name: delivery-workers-v1
+    tags:
+      # EC2 tags required for cluster-autoscaler auto-discovery
+      k8s.io/cluster-autoscaler/enabled: "true"
+      k8s.io/cluster-autoscaler/{{cluster_name}}: "owned"
+    labels:
+      node-type: delivery
+    instanceType: {{delivery_worker_instance_type}}
+    minSize: {{delivery_instance_count}}
+    maxSize: 20
+    volumeSize: 20
+    privateNetworking: true

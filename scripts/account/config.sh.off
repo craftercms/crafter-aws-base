@@ -1,0 +1,13 @@
+# RENAME THIS FILE TO config.sh BEFORE RUNNING setup.sh, and uncomment the properties 
+# !!! NEVER COMMIT THIS FILE IF YOU HAVE ALREADY EDITED THE PROPERTIES. YOU WILL BE COMMITING SENSITIVE DATA !!!
+# Enter here config for scripts
+# -----------------------------
+
+# Leave always empty
+export AWS_PAGER=
+# Required
+export AWS_PROFILE=
+# Required
+export AWS_DEFAULT_REGION=
+# Required
+export CLOUDFRONT_NOTIFICATIONS_EMAIL_ADDRESS=cloud-ops@craftersoftware.com

@@ -1,0 +1,23 @@
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: git-https-server-ssl-cert
+spec:
+  secretStoreRef:
+    name: default-cluster-secret-store
+    kind: ClusterSecretStore
+  refreshInterval: "1m"
+  target:
+    name: git-https-server-ssl-cert
+    creationPolicy: Owner
+    template:
+      data:
+        server.crt: "{{ .cert | toString }}"
+        server.key: "{{ .key | toString }}"
+  data:
+    - secretKey: cert
+      remoteRef:
+        key: "{{cluster_name}}/git-https-server-ssl-cert"
+    - secretKey: key
+      remoteRef:
+        key: "{{cluster_name}}/git-https-server-ssl-key"

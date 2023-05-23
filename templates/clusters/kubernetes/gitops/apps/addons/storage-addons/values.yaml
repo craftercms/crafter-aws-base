@@ -1,0 +1,8 @@
+aws-ebs-csi-driver:
+  controller:
+    nodeSelector:
+      node-type: k8s-support
+    k8sTagClusterId: {{cluster_name}}
+    serviceAccount:
+      create: false
+      name: ebs-csi-controller

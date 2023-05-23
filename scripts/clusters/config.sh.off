@@ -1,0 +1,166 @@
+# RENAME THIS FILE TO config.sh BEFORE RUNNING setup.sh, and uncomment the properties 
+# !!! NEVER COMMIT THIS FILE IF YOU HAVE ALREADY EDITED THE PROPERTIES. YOU WILL BE COMMITING SENSITIVE DATA !!!
+# Enter here config for scripts
+# -----------------------------
+
+# Required
+export ENVIRONMENT=default
+# Required
+export ENVIRONMENT_VERSION=v1
+# Required
+export EKS_VERSION=1.25
+# Required
+export EKSCTL_VERSION=v0.137.0
+# Required
+export KUBECTL_VERSION=1.25.7
+# Required
+export K9S_VERSION=
+# Required (default 9am EDT)
+export UPGRADE_NODES_CRON_UTC='0 13 * * 0'
+# Leave always empty
+export AWS_PAGER=
+# Required
+export AWS_PROFILE=
+# Required
+export AWS_DEFAULT_REGION=
+# Required
+export AWS_AZ_1=
+# Required
+export AWS_AZ_2=
+# Required
+export AWS_AZ_3=
+# Required
+export ACCOUNT_RESOURCES_REGION=$AWS_DEFAULT_REGION
+# Required
+export ENVIRONMENT_RESOURCES_REGION=$AWS_DEFAULT_REGION
+# Optional
+export AWS_BACKUP_REGION=
+# Optional, specify for multi-region delivery
+export AWS_MAIN_CLUSTER_REGION=
+# Required. Authoring worker groups can be also used for standalone deployers
+export AUTHORING_WORKER_INSTANCE_TYPE=m6i.xlarge
+# Required
+export DELIVERY_WORKER_INSTANCE_TYPE=m6i.xlarge
+# Required
+export AUTHORING_TOMCAT_CONTAINER_MIN_CPU=2
+# Required. Should match the number of Authoring license cores
+export AUTHORING_TOMCAT_CONTAINER_MAX_CPU=4
+# Required
+export AUTHORING_TOMCAT_CONTAINER_MIN_MEMORY=8Gi
+# Required
+export AUTHORING_TOMCAT_CONTAINER_MAX_MEMORY=$AUTHORING_TOMCAT_CONTAINER_MIN_MEMORY
+# Required
+export AUTHORING_DEPLOYER_CONTAINER_MIN_CPU=1
+# Required
+export AUTHORING_DEPLOYER_CONTAINER_MAX_CPU=2
+# Required
+export AUTHORING_DEPLOYER_CONTAINER_MIN_MEMORY=5Gi
+# Required
+export AUTHORING_DEPLOYER_CONTAINER_MAX_MEMORY=$AUTHORING_DEPLOYER_CONTAINER_MIN_MEMORY
+# Required
+export DELIVERY_TOMCAT_CONTAINER_MIN_CPU=2
+# Required
+export DELIVERY_TOMCAT_CONTAINER_MAX_CPU=4
+# Required
+export DELIVERY_TOMCAT_CONTAINER_MIN_MEMORY=13Gi
+# Required
+export DELIVERY_TOMCAT_CONTAINER_MAX_MEMORY=$DELIVERY_TOMCAT_CONTAINER_MIN_MEMORY
+# Required
+export DELIVERY_INSTANCE_COUNT=2
+# Required. When you a K8s cluster simultaneously running on the backup region, set this to false, since the backup region will have its own secrets
+export REPLICATE_SECRETS=true
+# Required (true or false)
+export ENABLE_BLOBS_BUCKETS_CREATION=true
+# Required (true or false). Recommended to be true on Prod envs
+export ENABLE_BACKUP_BUCKETS_CREATION=false
+# Required (true or false). Recommended true in multi-region delivery environments
+export ENABLE_S3_ORIGIN_FAILOVER=false
+# Required (true or false). When setting a green environment is a good idea to set as true to avoid accidentally clearing the site buckets used in blue. Also a good idea to disable in prod environments
+export DISABLE_BUCKET_CLEAR_ON_TARGET_DELETION=false
+# Required (true or false). When setting a green environment is a good idea to set as true to avoid accidentally deleting the site CloudFormations used in blue. Also a good idea to disable in prod environments
+export DISABLE_CLOUDFORMATION_DELETION_ON_TARGET_DELETION=false
+# Required
+export ENABLE_CLOUDWATCH_ALARMS=true
+# Required. For consistency and for easier peering connections, use 10.3.0.0/16 in a Dev environment, 10.2.0.0/16 in QA and 10.1.0.0/16 in Prod
+export VPC_CIDR=10.1.0.0/16
+# Required (use HighlyAvailable for Prod envs, Single for other envs like QA and Dev)
+export NAT_GATEWAY_MODE=Single
+# Required (normally the VPN from where you're going to access the cluster with kubectl and SSH)
+export CLUSTER_PUBLIC_ACCESS_CIDRS=
+# Required (use a no more than 5 letters acronym if possible)
+export CLIENT_ID=
+# Required
+export CLUSTER_NAME_PREFIX=crafter-$ENVIRONMENT
+# Required
+export CLUSTER_NAME=$CLUSTER_NAME_PREFIX-$ENVIRONMENT_VERSION
+# Required
+export SITE_CLOUDFORMATION_STACK_NAME_PREFIX=$CLUSTER_NAME_PREFIX
+# Required
+export S3_BUCKET_NAME_BASE_PREFIX=$CLIENT_ID-$CLUSTER_NAME_PREFIX
+# Required
+export S3_CURRENT_REGION_BUCKET_NAME_PREFIX=$S3_BUCKET_NAME_BASE_PREFIX-r1
+# Optional, specify only if specifying AWS_BACKUP_REGION
+export S3_BACKUP_REGION_BUCKET_NAME_PREFIX=$S3_BUCKET_NAME_BASE_PREFIX-r2
+# Required
+export CLOUDFRONT_LOGGING_S3_BUCKET_NAME=$CLIENT_ID-$CLUSTER_NAME_PREFIX-cloudfront-logs
+# Required (normally it's just the URL of this Git repo)
+export GITOPS_REPO_URL=
+# Required (the Git branch, tag or commit with the config files to deploy)
+export GITOPS_REPO_REVISION=master
+# Required (format h)
+export ES_AUTO_SNAPSHOT_START_HOUR_UTC=
+# Required (format hh:mm)
+export KUBER_VOLUME_DAILY_BACKUP_TIME_UTC=
+# All mail properties below are for emails sent by Crafter
+# Required
+export MAIL_HOST=
+# Required 
+export MAIL_PORT=
+# Required
+export MAIL_ADDRESS=
+# Required
+export MAIL_USERNAME=
+# Required
+export MAIL_PASSWORD=
+# Required
+export MAIL_SMTP_AUTH=
+# Required
+export MAIL_SMTP_STARTTLS=
+# Empty to auto-generate
+export CONFIG_ENCRYPTION_KEY=
+# Empty to auto-generate
+export CONFIG_ENCRYPTION_SALT=
+# Empty to auto-generate
+export SYSTEM_ENCRYPTION_KEY=
+# Empty to auto-generate
+export SYSTEM_ENCRYPTION_SALT=
+# Required
+export CRAFTERCMS_NAMESPACE=craftercms
+# Empty to auto-generate
+export CRAFTER_MANAGEMENT_TOKEN=
+# Empty to auto-generate
+export CLOUDFRONT_SECRET_HEADER_NAME_SUFFIX=
+# Empty to auto-generate
+export CLOUDFRONT_SECRET_HEADER_VALUE=
+# Required
+export ALARMS_EMAIL_ADDRESS=alarm@craftersoftware.com
+# Optional, if specified will enable Deployer notifications (comma-separated email addresses)
+export DEPLOYER_NOTIFICATION_EMAIL_ADDRESSES=
+# Required
+export ARGOCD_PROJECT=default
+# Empty to auto-generate
+export ARGOCD_PASSWORD=
+# Required
+export GENERATE_GIT_HTTPS_SERVER_SECRETS=false
+# Empty to auto-generate, auto-generated only when GENERATE_GIT_HTTPS_SERVER_SECRETS is true
+export GIT_HTTPS_SERVER_SSL_CERT=
+# Empty to auto-generate, auto-generated only when GENERATE_GIT_HTTPS_SERVER_SECRETS is true
+export GIT_HTTPS_SERVER_SSL_KEY=
+# Empty to auto-generate, auto-generated only when GENERATE_GIT_HTTPS_SERVER_SECRETS is true
+export GIT_HTTPS_SERVER_USERNAME=
+# Empty to auto-generate, auto-generated only when GENERATE_GIT_HTTPS_SERVER_SECRETS is true
+export GIT_HTTPS_SERVER_PASSWORD=
+# Required in supplementary regions
+export GIT_HTTPS_SERVER_REPOS_URL=
+# Required
+export DELIVERY_DOMAIN_NAME=

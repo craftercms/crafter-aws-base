@@ -1,0 +1,49 @@
+# deploy cwagent as daemonset
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: prometheus
+  namespace: amazon-cloudwatch
+spec:
+  selector:
+    matchLabels:
+      name: prometheus
+  template:
+    metadata:
+      labels:
+        name: prometheus
+    spec:
+      containers:
+        - name: prometheus
+          image: public.ecr.aws/cloudwatch-agent/cloudwatch-agent:1.247358.0b252413
+          imagePullPolicy: Always
+          resources:
+            limits:
+              cpu:  500m
+              memory: 1000Mi
+            requests:
+              cpu: 200m
+              memory: 200Mi
+          # Please don't change below envs
+          env:
+            - name: CI_VERSION
+              value: "k8s/1.3.13"
+          # Please don't change the mountPath
+          volumeMounts:
+            - name: prometheus-cwagentconfig
+              mountPath: /etc/cwagentconfig
+            - name: prometheus-config
+              mountPath: /etc/prometheusconfig
+      {{- with .Values.prometheusDaemonset.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }} 
+      volumes:
+        - name: prometheus-cwagentconfig
+          configMap:
+            name: prometheus-cwagentconfig
+        - name: prometheus-config
+          configMap:
+            name: prometheus-config
+      terminationGracePeriodSeconds: 60
+      serviceAccountName: {{ .Values.cwagent.serviceAccount.name }}

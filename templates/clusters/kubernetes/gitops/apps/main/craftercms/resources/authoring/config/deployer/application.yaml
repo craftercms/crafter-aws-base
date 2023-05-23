@@ -1,0 +1,32 @@
+deployer:
+  main:
+    config:
+      environment:
+        active: ${CRAFTER_ENVIRONMENT}
+    targets:
+      config:
+        folderPath: ${targets.dir}
+    deployments:
+      folderPath: ${deployments.dir}
+      output:
+        folderPath: ${logs.dir}
+      processedCommits:
+        folderPath: ${processedCommits.dir}
+      pool:
+        # Thread pool core size
+        size: 25
+        # Thread pool max size
+        max: 100
+        # Thread pool queue size
+        queue: 100
+    logging:
+      folderPath: ${logs.dir}
+    management:
+      # Deployer management authorization token
+      authorizationToken: ${DEPLOYER_MANAGEMENT_TOKEN}
+    security:
+      encryption:
+        # The key used for encryption of configuration properties
+        key: ${CRAFTER_ENCRYPTION_KEY}
+        # The salt used for encryption of configuration properties
+        salt: ${CRAFTER_ENCRYPTION_SALT}

@@ -1,0 +1,18 @@
+awsRegion: {{aws_region}}
+clusterName: {{cluster_name}}
+prometheusDaemonset:
+  nodeSelector:
+    node-type: authoring
+cwagent:
+  serviceAccount:
+    create: false
+    name: cloudwatch-addons
+fluentBit:
+  logRetentionDays: 30
+  serviceAccount:
+    create: false
+    name: cloudwatch-addons
+prometheus:
+  serviceAccount:
+    create: false
+    name: cloudwatch-addons

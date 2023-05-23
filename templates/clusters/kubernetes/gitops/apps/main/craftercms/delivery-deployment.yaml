@@ -1,0 +1,250 @@
+# ALB Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: delivery-ingress
+  annotations:
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/healthcheck-port: '8080'
+    alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+    alb.ingress.kubernetes.io/healthcheck-path: /api/1/monitoring/status.json?token={{crafter_management_token}}
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: '30'
+    # This should match SAML session or Java session
+    alb.ingress.kubernetes.io/target-group-attributes: stickiness.enabled=true,stickiness.lb_cookie.duration_seconds=900
+    alb.ingress.kubernetes.io/conditions.status-request: >
+      [{"field":"query-string","queryStringConfig":{"values":[{"key":"token","value":"{{crafter_management_token}}"}]}}]
+    alb.ingress.kubernetes.io/conditions.cloudfront-request: >
+      [{"field":"http-header","httpHeaderConfig":{"httpHeaderName": "X-CloudFront-{{cloudfront_secret_header_name_suffix}}", "values":["{{cloudfront_secret_header_value}}"]}}]
+    alb.ingress.kubernetes.io/actions.status-request: >
+      {"type":"forward","forwardConfig":{"targetGroups":[{"serviceName":"delivery-service","servicePort":"8080"}]}}
+    alb.ingress.kubernetes.io/actions.cloudfront-request: >
+      {"type":"forward","forwardConfig":{"targetGroups":[{"serviceName":"delivery-service","servicePort":"8080"}]}}
+    alb.ingress.kubernetes.io/actions.block-request: >
+      {"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"403","messageBody":"403 External access to endpoint not allowed"}}
+    # # Uncomment after generating the SSL cert and validating it
+    # alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS":443}]'
+    # alb.ingress.kubernetes.io/ssl-redirect: '443'
+    # alb.ingress.kubernetes.io/certificate-arn: ''  
+spec:
+  ingressClassName: alb
+  rules:
+    - http:
+        paths:
+          - path: /api/1/monitoring/status.json
+            pathType: Exact
+            backend:
+              service:
+                name: status-request
+                port:
+                  name: use-annotation
+          - path: /api/1/monitoring/*
+            pathType: ImplementationSpecific
+            backend: 
+              service: 
+                name: block-request
+                port:
+                  name: use-annotation
+          - path: /api/1/site/context/destroy*
+            pathType: ImplementationSpecific
+            backend: 
+              service: 
+                name: block-request
+                port:
+                  name: use-annotation
+          - path: /api/1/site/context/rebuild*
+            pathType: ImplementationSpecific
+            backend: 
+              service: 
+                name: block-request
+                port:
+                  name: use-annotation
+          - path: /api/1/site/context/graphql/rebuild*
+            pathType: ImplementationSpecific
+            backend: 
+              service: 
+                name: block-request
+                port:
+                  name: use-annotation
+          - path: /api/1/site/cache/clear*
+            pathType: ImplementationSpecific
+            backend: 
+              service: 
+                name: block-request
+                port:
+                  name: use-annotation
+          - path: /api/1/site/mappings/reload*
+            pathType: ImplementationSpecific
+            backend: 
+              service: 
+                name: block-request
+                port:
+                  name: use-annotation
+          - path: /*
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: cloudfront-request
+                port:
+                  name: use-annotation
+---
+# Delivery Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: delivery-service
+spec:
+  selector:
+    component: delivery
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+# Delivery Pod Disruption Budget
+apiVersion: policy/v1beta1
+kind: PodDisruptionBudget
+metadata:
+  name: delivery-pdb
+spec:
+  maxUnavailable: 50%
+  selector:
+    matchLabels:
+      component: delivery
+---
+# Delivery Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: delivery
+spec:
+  replicas: {{delivery_instance_count}}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      component: delivery
+  template:
+    metadata:
+      labels:
+        component: delivery
+    spec:
+      serviceAccountName: delivery
+      securityContext:
+        fsGroup: 1000
+      nodeSelector:
+        node-type: delivery
+      volumes:   
+        - name: config-encryption-key-salt
+          secret:
+            secretName: config-encryption-key-salt
+        - name: crafter-license
+          secret:
+            secretName: crafter-license
+        - name: engine-config
+          configMap:
+            name: delivery-engine-config
+        - name: tomcat-config
+          configMap:
+            name: delivery-tomcat-config
+        - name: logs
+          emptyDir: {}
+        - name: temp
+          emptyDir: {}
+      containers:
+        # Tomcat container
+        - name: tomcat
+          image: craftercms/delivery_tomcat:latest
+          imagePullPolicy: "Always"
+          startupProbe:
+            httpGet:
+              path: /api/1/monitoring/status.json?token={{crafter_management_token}}
+              port: 8080
+            failureThreshold: 30
+            periodSeconds: 60
+          readinessProbe:
+            httpGet:
+              path: /api/1/monitoring/status.json?token={{crafter_management_token}}
+              port: 8080
+            failureThreshold: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/1/monitoring/status.json?token={{crafter_management_token}}
+              port: 8080
+            failureThreshold: 10
+            timeoutSeconds: 60
+            periodSeconds: 60
+          resources:
+            requests:
+              cpu: {{delivery_tomcat_container_min_cpu}}
+              memory: {{delivery_tomcat_container_min_memory}}
+            limits:
+              cpu: {{delivery_tomcat_container_max_cpu}}
+              memory: {{delivery_tomcat_container_max_memory}}
+          ports:
+            - containerPort: 8080
+          volumeMounts: 
+            - name: crafter-license
+              subPath: crafter.lic
+              mountPath: /opt/crafter/bin/apache-tomcat/shared/classes/crafter/license/crafter.lic
+              readOnly: true
+            - name: temp
+              mountPath: /opt/crafter/temp
+            - name: logs
+              mountPath: /opt/crafter/logs
+            - name: engine-config
+              subPath: services-context.xml
+              mountPath: /opt/crafter/bin/apache-tomcat/shared/classes/crafter/engine/extension/services-context.xml
+              readOnly: true
+            - name: engine-config
+              subPath: server-config.properties
+              mountPath: /opt/crafter/bin/apache-tomcat/shared/classes/crafter/engine/extension/server-config.properties
+              readOnly: true
+            - name: engine-config
+              subPath: logging.xml
+              mountPath: /opt/crafter/bin/apache-tomcat/shared/classes/crafter/engine/extension/logging.xml
+            - name: tomcat-config
+              subPath: server.xml
+              mountPath: /opt/crafter/bin/apache-tomcat/conf/server.xml
+              readOnly: true
+          env:
+            - name: CRAFTER_ENVIRONMENT
+              value: "{{environment}}"            
+            - name: AWS_DEFAULT_REGION
+              value: "{{aws_region}}"
+            - name: CATALINA_OPTS
+              value: "-server -Xss1024K -XX:MaxRAMPercentage=75.0"
+            - name: S3_BUCKET_NAME_PREFIX
+              value: "{{s3_current_region_bucket_name_prefix}}"
+            - name: S3_BUCKET_ROOT_PATH
+              value: "{{s3_current_region_bucket_name_prefix}}-site-{siteName}/{{environment_version}}"
+            - name: ES_URL
+              value: "{{es_url}}"
+            - name: ENGINE_MANAGEMENT_TOKEN
+              value: "{{crafter_management_token}}"
+            - name: CRAFTER_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: config-encryption-key-salt
+                  key: key
+            - name: CRAFTER_ENCRYPTION_SALT
+              valueFrom:
+                secretKeyRef:
+                  name: config-encryption-key-salt
+                  key: salt
+              # Run the watcher that checks for new changes in the site buckets every 10 secs
+            - name: DEPLOYMENT_EVENTS_WATCHER_CRON
+              value: '*/10 * * ? * *'
+        - name: logrotate
+          image: craftercms/logrotate:latest
+          imagePullPolicy: "Always"
+          volumeMounts:
+            - name: logs
+              mountPath: /opt/crafter/logs
+          env:
+            - name: CRON_SCHEDULE
+              # Every hour
+              value: '0 * * * *'

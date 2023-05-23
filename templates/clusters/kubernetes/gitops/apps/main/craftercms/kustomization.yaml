@@ -1,0 +1,61 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: craftercms
+images:
+  - name: craftercms/authoring_tomcat
+    newTag: '3.1.25E_BYOL'
+  - name: craftercms/deployer
+    newTag: '3.1.25E_BYOL'
+  - name: craftercms/delivery_tomcat
+    newTag: '3.1.25E_BYOL'
+  - name: craftercms/git_https_server
+    newTag: '3.1.25E_BYOL'
+  - name: craftercms/logrotate
+    newTag: '4.0.3E'
+resources:
+  - external-secrets/mail-user-credentials.yaml
+  - external-secrets/config-encryption-key-salt.yaml
+  - external-secrets/system-encryption-key-salt.yaml
+  # Uncomment on multi-region
+  # - external-secrets/git-https-server-credentials.yaml
+  # - external-secrets/git-https-server-ssl-cert.yaml
+  # Uncomment if restoring from a backup
+  # - authoring-pv.yaml
+  - authoring-deployment.yaml
+  - delivery-deployment.yaml
+configMapGenerator:
+  - name: gitconfig
+    files:
+      - resources/common/config/.gitconfig
+  - name: authoring-tomcat-config
+    files:
+      - resources/authoring/config/tomcat/server.xml
+  - name: authoring-studio-config
+    files:
+      - resources/authoring/config/studio/logging.xml
+      - resources/authoring/config/studio/studio-config-override.yaml
+  - name: authoring-engine-config
+    files:
+      - resources/authoring/config/engine/logging.xml
+      - resources/authoring/config/engine/server-config.properties
+  - name: authoring-deployer-config
+    files:
+      - resources/authoring/config/deployer/logging.xml
+      - resources/authoring/config/deployer/application.yaml
+      - resources/authoring/config/deployer/base-target.yaml
+      - resources/authoring/config/deployer/templates/targets/s3-main-target-template.yaml
+      - resources/authoring/config/deployer/templates/targets/s3-supplementary-target-template.yaml
+      - resources/authoring/config/deployer/aws/cloudformation/main-site-stack.yaml
+      - resources/authoring/config/deployer/aws/cloudformation/supplementary-site-stack.yaml
+  - name: delivery-tomcat-config
+    files:
+      - resources/delivery/config/tomcat/server.xml
+  - name: delivery-engine-config
+    files:
+      - resources/delivery/config/engine/logging.xml
+      - resources/delivery/config/engine/server-config.properties
+      - resources/delivery/config/engine/services-context.xml
+secretGenerator:
+  - name: crafter-license
+    files:
+      - resources/common/secrets/crafter.lic

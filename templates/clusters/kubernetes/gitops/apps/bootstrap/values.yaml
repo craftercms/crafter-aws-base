@@ -1,0 +1,8 @@
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+  source:
+    repoURL: {{gitops_repo_url}}
+    appsRootPath: clusters/{{aws_region}}/{{cluster_name}}/kubernetes/gitops/apps
+    targetRevision: '{{gitops_repo_revision}}'

@@ -1,0 +1,45 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Crafter Cloud Supplementary Site Stack
+Parameters:
+  SiteName:
+    Type: String
+  EnvironmentVersion:
+    Type: String
+  S3SiteBucketName:
+    Type: String
+  CloudFrontOriginAccessIdentityId:
+    Type: String
+
+Resources:
+  S3SiteBucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: !Ref S3SiteBucketName
+      AccessControl: Private
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+
+  S3SiteBucketPolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    Properties:
+      Bucket: !Ref S3SiteBucket
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: ''
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ${CloudFrontOriginAccessIdentityId}'
+            Action: 's3:GetObject'
+            Resource: !Sub 'arn:aws:s3:::${S3SiteBucketName}/*'
+          - Sid: ''
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ${CloudFrontOriginAccessIdentityId}'
+            Action: 's3:ListBucket'
+            Resource: !Sub 'arn:aws:s3:::${S3SiteBucketName}'

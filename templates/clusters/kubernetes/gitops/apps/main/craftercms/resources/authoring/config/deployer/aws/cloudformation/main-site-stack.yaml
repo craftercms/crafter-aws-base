@@ -1,0 +1,355 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Crafter Cloud Main Site Stack
+Parameters:
+  SiteName:
+    Type: String
+  EnvironmentVersion:
+    Type: String
+  BackupRegion:
+    Type: String
+    Default: ''
+    AllowedValues:
+      - ''
+      - us-east-1
+      - us-east-2
+      - us-west-1
+      - us-west-2
+      - ca-central-1
+      - ap-south-1
+      - ap-northeast-2
+      - ap-southeast-1
+      - ap-southeast-2
+      - ap-northeast-1
+      - eu-central-1
+      - eu-west-1
+      - eu-west-2
+      - sa-east-1
+  TestStack:
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false    
+  CreateBlobsBuckets:
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false      
+  CreateBackupBuckets:
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+  EnableS3OriginFailover:
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false 
+  S3ReplicationRoleArn:
+    Type: String
+    Default: ''
+  S3BackupBucketLambdaArn:
+    Type: String
+    Default: ''
+  S3SiteBucketName:
+    Type: String
+  S3BackupSiteBucketName:
+    Type: String
+    Default: ''
+  S3BlobsBucketName:
+    Type: String
+    Default: ''
+  S3BackupBlobsBucketName:
+    Type: String
+    Default: ''
+  DeliveryLBDomainName:
+    Type: String
+  CloudFrontOriginAccessIdentityId:
+    Type: String
+  CloudFrontCertificateArn:
+    Type: String
+    Default: ''
+  AlternateCloudFrontDomainNames:
+    Type: CommaDelimitedList
+    Default: ''
+  CloudFrontSecretHeaderName:
+    Type: String
+  CloudFrontSecretHeaderValue:
+    Type: String
+  CloudFrontLoggingS3BucketName:
+    Type: String
+    Default: ''
+  LBOriginCacheBehaviorAllowedMethods:
+    Type: CommaDelimitedList
+    Default: 'GET,HEAD,OPTIONS,PUT,POST,PATCH,DELETE'
+  LBOriginCacheBehaviorCachedMethods:
+    Type: CommaDelimitedList
+    Default: 'HEAD,GET,OPTIONS'
+  LBOriginKeepaliveTimeout:
+    Type: Number
+    Default: 5
+  LBOriginReadTimeout:
+    Type: Number
+    Default: 60
+  LBOriginCachePolicyId:
+    Type: String
+    Default: '{{default_delivery_cloudfront_caching_policy_id}}'
+  LBOriginOriginRequestPolicyId:
+    Type: String
+    Default: '{{default_delivery_cloudfront_origin_request_policy_id}}'
+  S3OriginCachePolicyId:
+    Type: String
+    # CachingOptimized
+    Default: '658327ea-f89d-4fab-a63d-7e88639e58f6'
+  S3OriginOriginRequestPolicyId:
+    Type: String
+    # CORS-S3Origin
+    Default: '88a5eaf4-2fd4-4709-b370-b4c650ea3fcf'
+  S3OriginResponseHeadersPolicyId:
+    Type: String
+    Default: '{{default_static_assets_cloudfront_response_headers_policy_id}'
+  S3OriginCacheBehaviorAllowedMethods:
+    Type: CommaDelimitedList
+    Default: 'HEAD,GET'
+  S3OriginCacheBehaviorCachedMethods:
+    Type: CommaDelimitedList
+    Default: 'HEAD,GET'
+  CloudFrontPriceClass:
+    Type: String
+    Default: PriceClass_100
+    AllowedValues:
+      - PriceClass_100
+      - PriceClass_200
+      - PriceClass_All
+  EnableCompressionForS3:
+    Type: String
+    Default: true
+    AllowedValues:
+      - true
+      - false 
+  EnableCompressionForLB:
+    Type: String
+    Default: true
+    AllowedValues:
+      - true
+      - false
+
+Conditions:
+  IsTestStack:
+    !Equals [true, !Ref TestStack]
+  ShouldCreateSiteBucket:
+    !Equals [false, !Ref TestStack]
+  ShouldCreateBlobsBuckets:
+    !And [!Not [!Equals [!Ref S3BlobsBucketName, '']], !Equals [true, !Ref CreateBlobsBuckets], !Equals [false, !Ref TestStack]]
+  ShouldCreateBackupBuckets:
+    !And [!Not [!Equals [!Ref BackupRegion, '']], !Equals [true, !Ref CreateBackupBuckets], !Equals [false, !Ref TestStack]]
+  ShouldCreateBackupBlobsBuckets:
+    !And [Condition: ShouldCreateBackupBuckets, Condition: ShouldCreateBlobsBuckets]
+  ShouldEnableS3OriginFailover:
+    !And [!Not [!Equals [!Ref BackupRegion, '']], !Not [!Equals [!Ref S3BackupSiteBucketName, '']], !Equals [true, !Ref EnableS3OriginFailover]]    
+  LBOriginCachePolicyIdSpecified:
+    !Not [!Equals [!Ref LBOriginCachePolicyId, '']]
+  LBOriginOriginRequestPolicyIdSpecified:
+    !Not [!Equals [!Ref LBOriginOriginRequestPolicyId, '']]
+  S3OriginCachePolicyIdSpecified:
+    !Not [!Equals [!Ref S3OriginCachePolicyId, '']]
+  S3OriginOriginRequestPolicyIdSpecified:
+    !Not [!Equals [!Ref S3OriginOriginRequestPolicyId, '']]
+  S3OriginResponseHeadersPolicyIdSpecified:
+    !Not [!Equals [!Ref S3OriginResponseHeadersPolicyId, '']]
+  CloudFrontCertificateArnSpecified:
+    !Not [!Equals [!Ref CloudFrontCertificateArn, '']]
+  AlternateCloudFrontDomainNamesSpecified:
+    !Not [!Equals [!Join [',', !Ref AlternateCloudFrontDomainNames], '']]
+  EnableCloudFrontLogging:
+    !Not [!Equals [!Ref CloudFrontLoggingS3BucketName, '']]
+
+Resources:
+  S3BackupSiteBucket:
+    Type: Custom::LambdaTrigger
+    Condition: ShouldCreateBackupBuckets
+    Properties:
+      ServiceToken: !Ref S3BackupBucketLambdaArn
+      BackupBucketName: !Ref S3BackupSiteBucketName
+      BackupBucketRegion: !Ref BackupRegion
+
+  S3SiteBucket:
+    Type: 'AWS::S3::Bucket'
+    Condition: ShouldCreateSiteBucket
+    Properties:
+      BucketName: !Ref S3SiteBucketName
+      AccessControl: Private
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      ReplicationConfiguration:
+          !If
+          - ShouldCreateBackupBuckets
+          - Role: !Ref S3ReplicationRoleArn
+            Rules:
+              - Destination:
+                  Bucket: !GetAtt [S3BackupSiteBucket, Arn]
+                  StorageClass: STANDARD
+                Id: Backup
+                Prefix: ''
+                Status: Enabled
+          - !Ref 'AWS::NoValue'
+      VersioningConfiguration:
+        Status: Enabled
+
+  S3SiteBucketPolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    Condition: ShouldCreateSiteBucket
+    Properties:
+      Bucket: !Ref S3SiteBucket
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: ''
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ${CloudFrontOriginAccessIdentityId}'
+            Action: 's3:GetObject'
+            Resource: !Sub 'arn:aws:s3:::${S3SiteBucketName}/*'
+          - Sid: ''
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ${CloudFrontOriginAccessIdentityId}'
+            Action: 's3:ListBucket'
+            Resource: !Sub 'arn:aws:s3:::${S3SiteBucketName}'
+
+  S3BackupBlobsBucket:
+    Type: Custom::LambdaTrigger
+    Condition: ShouldCreateBackupBlobsBuckets
+    Properties:
+      ServiceToken: !Ref S3BackupBucketLambdaArn
+      BackupBucketName: !Ref S3BackupBlobsBucketName
+      BackupBucketRegion: !Ref BackupRegion
+
+  S3BlobsBucket:
+    Type: 'AWS::S3::Bucket'
+    Condition: ShouldCreateBlobsBuckets
+    Properties:
+      BucketName: !Ref S3BlobsBucketName
+      AccessControl: Private
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      ReplicationConfiguration:
+          !If
+          - ShouldCreateBackupBlobsBuckets
+          - 
+            Role: !Ref S3ReplicationRoleArn
+            Rules:
+              - Destination:
+                  Bucket: !GetAtt [S3BackupBlobsBucket, Arn]
+                  StorageClass: STANDARD
+                Id: Backup
+                Prefix: ''
+                Status: Enabled
+          - !Ref 'AWS::NoValue'
+      VersioningConfiguration:
+        Status: Enabled
+  
+  CloudFrontDistribution:
+    Type: 'AWS::CloudFront::Distribution'
+    Properties:
+      DistributionConfig:
+        Comment: !If [IsTestStack, !Sub 'Test CloudFront Distribution for site ${SiteName}', !Sub 'CloudFront Distribution for site ${SiteName}']
+        Enabled: true
+        PriceClass: !Ref CloudFrontPriceClass
+        Aliases: !If [AlternateCloudFrontDomainNamesSpecified, !Ref AlternateCloudFrontDomainNames, !Ref 'AWS::NoValue']
+        DefaultCacheBehavior:
+          TargetOriginId: !Sub 'LB-${DeliveryLBDomainName}'
+          ViewerProtocolPolicy: redirect-to-https
+          Compress: !Ref EnableCompressionForLB
+          AllowedMethods: !Ref LBOriginCacheBehaviorAllowedMethods
+          CachedMethods: !Ref LBOriginCacheBehaviorCachedMethods
+          CachePolicyId: !If [LBOriginCachePolicyIdSpecified, !Ref LBOriginCachePolicyId, !Ref 'AWS::NoValue']
+          OriginRequestPolicyId: !If [LBOriginOriginRequestPolicyIdSpecified, !Ref LBOriginOriginRequestPolicyId, !Ref 'AWS::NoValue']
+        CacheBehaviors:
+          - PathPattern: '/static-assets/*'
+            TargetOriginId: !If [ShouldEnableS3OriginFailover, !Sub 'S3-With-Failover-${S3SiteBucketName}', !Sub 'S3-${S3SiteBucketName}']
+            ViewerProtocolPolicy: redirect-to-https
+            Compress: !Ref EnableCompressionForS3
+            AllowedMethods: !Ref S3OriginCacheBehaviorAllowedMethods
+            CachedMethods: !Ref S3OriginCacheBehaviorCachedMethods
+            CachePolicyId: !If [S3OriginCachePolicyIdSpecified, !Ref S3OriginCachePolicyId, !Ref 'AWS::NoValue']
+            OriginRequestPolicyId: !If [S3OriginOriginRequestPolicyIdSpecified, !Ref S3OriginOriginRequestPolicyId, !Ref 'AWS::NoValue']
+            ResponseHeadersPolicyId: !If [S3OriginResponseHeadersPolicyIdSpecified, !Ref S3OriginResponseHeadersPolicyId, !Ref 'AWS::NoValue']
+        Origins:
+          - DomainName: !Ref DeliveryLBDomainName
+            Id: !Sub 'LB-${DeliveryLBDomainName}'
+            CustomOriginConfig:
+              OriginKeepaliveTimeout: !Ref LBOriginKeepaliveTimeout
+              OriginReadTimeout: !Ref LBOriginReadTimeout
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: ['TLSv1', 'TLSv1.1', 'TLSv1.2']
+            OriginCustomHeaders:
+              - HeaderName: X-Crafter-Site
+                HeaderValue: !Ref SiteName
+              - HeaderName: !Ref CloudFrontSecretHeaderName
+                HeaderValue: !Ref CloudFrontSecretHeaderValue
+          - DomainName: !Sub '${S3SiteBucketName}.s3.${AWS::Region}.amazonaws.com'
+            Id: !Sub 'S3-${S3SiteBucketName}'
+            OriginPath: !Sub '/${EnvironmentVersion}'
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub 'origin-access-identity/cloudfront/${CloudFrontOriginAccessIdentityId}'
+          - !If
+            - ShouldEnableS3OriginFailover
+            - DomainName: !Sub '${S3BackupSiteBucketName}.s3.${BackupRegion}.amazonaws.com'
+              Id: !Sub 'S3-${S3BackupSiteBucketName}'
+              OriginPath: !Sub '/${EnvironmentVersion}'
+              S3OriginConfig:
+                OriginAccessIdentity: !Sub 'origin-access-identity/cloudfront/${CloudFrontOriginAccessIdentityId}'
+            - !Ref 'AWS::NoValue'
+        OriginGroups:
+          !If
+          - ShouldEnableS3OriginFailover
+          - Quantity: 1
+            Items:
+              - Id: !Sub 'S3-With-Failover-${S3SiteBucketName}'
+                FailoverCriteria:
+                  StatusCodes:
+                    Quantity: 6
+                    Items:
+                      - '404'
+                      - '403'
+                      - '500'
+                      - '502'
+                      - '503'
+                      - '504'
+                Members:
+                  Quantity: 2
+                  Items:
+                    - OriginId: !Sub 'S3-${S3SiteBucketName}'
+                    - OriginId: !Sub 'S3-${S3BackupSiteBucketName}'
+          - !Ref 'AWS::NoValue'          
+        Restrictions:
+          GeoRestriction:
+            RestrictionType: none
+            Locations: []
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: !If [CloudFrontCertificateArnSpecified, !Ref 'AWS::NoValue', true]
+          AcmCertificateArn: !If [CloudFrontCertificateArnSpecified, !Ref CloudFrontCertificateArn, !Ref 'AWS::NoValue']
+          SslSupportMethod: !If [CloudFrontCertificateArnSpecified, 'sni-only', !Ref 'AWS::NoValue']
+          MinimumProtocolVersion: TLSv1.1_2016
+        Logging:
+          !If
+          - EnableCloudFrontLogging
+          - Bucket: !Ref CloudFrontLoggingS3BucketName
+            Prefix: !Sub '${EnvironmentVersion}/${SiteName}/'
+          - !Ref 'AWS::NoValue'
+
+Outputs:
+  CloudFrontDistributionId:
+    Value: !Ref CloudFrontDistribution
+  CloudFrontDistributionDomainName:
+    Value: !GetAtt CloudFrontDistribution.DomainName

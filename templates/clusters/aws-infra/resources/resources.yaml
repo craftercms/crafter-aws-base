@@ -1,0 +1,552 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Additional AWS resources for the {{cluster_name}} cluster
+
+Parameters:
+  VpcId:
+    Type: String
+  PrivateSubnetIds:
+    Type: CommaDelimitedList
+  PrivateRouteTableIds:
+    Type: CommaDelimitedList
+  ClusterNodesSecurityGroupId:
+    Type: String
+  ElasticsearchVersion:
+    Type: String
+    AllowedValues: ['6.8', '6.7', '7.7, ''7.4', '7.1']
+    Default: 6.8
+  BackupRegion:
+    Type: String
+    Default: ''
+    AllowedValues:
+      - ''
+      - us-east-1
+      - us-east-2
+      - us-west-1
+      - us-west-2
+      - ca-central-1
+      - ap-south-1
+      - ap-northeast-2
+      - ap-southeast-1
+      - ap-southeast-2
+      - ap-northeast-1
+      - eu-central-1
+      - eu-west-1
+      - eu-west-2
+      - sa-east-1
+  BackupRegionBucketNamePrefix:
+    Type: String
+    Default: ''
+  DeliveryInstanceCount:
+    Type: String
+    Default: '2'
+  AuthoringLoadBalancerArn:
+    Type: String
+    Default: ''
+  CloudWatchAlarmsEnabled:
+    Type: String
+    Default: true
+  AlarmsEmailAddress:
+    Type: String
+    AllowedPattern: "^[\\x20-\\x45]?[\\w-\\+]+(\\.[\\w]+)*@[\\w-]+(\\.[\\w]+)*(\\.[a-z]{2,})$"
+    ConstraintDescription: Email address required.
+    Default: alarm@craftersoftware.com
+    Description: Enter an email address you want to subscribe to the Amazon SNS topic that will send alarms for Cloudfront issues.
+
+Conditions:
+  UseBackupRegion:
+    !And [!Not [!Equals [!Ref BackupRegion, '']], !Not [!Equals [!Ref BackupRegionBucketNamePrefix, '']]]
+  AuthoringLoadBalancerArnSpecified:
+    !Not [!Equals [!Ref AuthoringLoadBalancerArn, '']]
+  CloudWatchAlarmsEnabled:
+    !Equals [!Ref CloudWatchAlarmsEnabled, true]
+
+Resources:
+  AlarmsSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+      - Endpoint: 
+          Ref: AlarmsEmailAddress
+        Protocol: email
+        
+  AuthoringBotControlWebACL:
+    Type: AWS::WAFv2::WebACL
+    Condition: AuthoringLoadBalancerArnSpecified
+    Properties:
+      Description: Bot control WebACL for Authoring in the {{cluster_name}} cluster
+      VisibilityConfig:
+        CloudWatchMetricsEnabled: true
+        MetricName: AllowedRequests
+        SampledRequestsEnabled: true 
+      DefaultAction: 
+        Allow: {}
+      Scope:
+        "REGIONAL"
+      Rules: 
+        - Name: botcontrolrules
+          OverrideAction:
+            Count: {}
+          Priority: 0
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesBotControlRuleSet
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: AllowedRequests
+            SampledRequestsEnabled: true
+
+  AuthoringLoadBalancerWebACLAssociation:  
+    Type: AWS::WAFv2::WebACLAssociation
+    Condition: AuthoringLoadBalancerArnSpecified
+    Properties:
+      ResourceArn: !Ref AuthoringLoadBalancerArn
+      WebACLArn: !GetAtt AuthoringBotControlWebACL.Arn
+
+  AuthoringPodsDownAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CloudWatchAlarmsEnabled
+    Properties:
+      AlarmName: {{client_id}}/{{cluster_name}}/authoring-pods-down
+      AlarmDescription: Authoring in {{client_id}}/{{cluster_name}} pod count < 1
+      Namespace: ContainerInsights
+      MetricName: service_number_of_running_pods
+      Statistic: Average
+      Period: '60'
+      EvaluationPeriods: '1'
+      ComparisonOperator: LessThanThreshold
+      Threshold: '1'
+      TreatMissingData: "breaching"
+      AlarmActions:
+      - Ref: AlarmsSNSTopic
+      OKActions:
+      - !Ref AlarmsSNSTopic
+      Dimensions:
+      - Name: Namespace
+        Value: craftercms
+      - Name: Service
+        Value: authoring-service
+      - Name: ClusterName
+        Value: {{cluster_name}}
+
+  DeliveryPodDownAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CloudWatchAlarmsEnabled
+    Properties:
+      AlarmName: {{client_id}}/{{cluster_name}}/delivery-pods-down
+      AlarmDescription: !Sub Delivery in {{client_id}}/{{cluster_name}} pod count < ${DeliveryInstanceCount}"
+      Namespace: ContainerInsights
+      MetricName: service_number_of_running_pods
+      Statistic: Average
+      Period: '60'
+      EvaluationPeriods: '1'
+      ComparisonOperator: LessThanThreshold
+      Threshold: !Sub "${DeliveryInstanceCount}"
+      AlarmActions:
+      - Ref: AlarmsSNSTopic
+      OKActions:
+      - !Ref AlarmsSNSTopic
+      TreatMissingData: "breaching"
+      Dimensions:
+      - Name: Namespace
+        Value: craftercms
+      - Name: Service
+        Value: delivery-service
+      - Name: ClusterName
+        Value: {{cluster_name}}
+
+  AuthoringHighMemoryAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CloudWatchAlarmsEnabled
+    Properties:
+      AlarmName: {{client_id}}/{{cluster_name}}/authoring-high-memory-usage
+      AlarmDescription: Authoring in {{client_id}}/{{cluster_name}} pod memory usage is > 90%
+      Namespace: ContainerInsights
+      MetricName: pod_memory_utilization_over_pod_limit
+      Statistic: Average
+      Period: '300'
+      EvaluationPeriods: '1'
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: '90'
+      TreatMissingData: "missing"
+      AlarmActions:
+      - Ref: AlarmsSNSTopic
+      OKActions:
+      - !Ref AlarmsSNSTopic
+      Dimensions:
+      - Name: Namespace
+        Value: craftercms
+      - Name: Service
+        Value: authoring-service
+      - Name: ClusterName
+        Value: {{cluster_name}}
+
+  DeliveryHighMemoryAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CloudWatchAlarmsEnabled
+    Properties:
+      AlarmName: {{client_id}}/{{cluster_name}}/delivery-high-memory-usage
+      AlarmDescription: Delivery in {{client_id}}/{{cluster_name}} pod memory usage is > 90%
+      Namespace: ContainerInsights
+      MetricName: pod_memory_utilization_over_pod_limit
+      Statistic: Average
+      Period: '300'
+      EvaluationPeriods: '1'
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: '90'
+      TreatMissingData: "missing"
+      AlarmActions:
+      - Ref: AlarmsSNSTopic
+      OKActions:
+      - !Ref AlarmsSNSTopic
+      Dimensions:
+      - Name: Namespace
+        Value: craftercms
+      - Name: Service
+        Value: delivery-service
+      - Name: ClusterName
+        Value: {{cluster_name}}
+
+  AuthoringHighCPUAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CloudWatchAlarmsEnabled
+    Properties:
+      AlarmName: {{client_id}}/{{cluster_name}}/authoring-high-cpu-usage
+      AlarmDescription: Authoring in {{client_id}}/{{cluster_name}} pod CPU usage is > 90%
+      Namespace: ContainerInsights
+      MetricName: pod_cpu_utilization
+      Statistic: Average
+      Period: '300'
+      EvaluationPeriods: '1'
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: '90'
+      TreatMissingData: "missing"
+      AlarmActions:
+      - Ref: AlarmsSNSTopic
+      OKActions:
+      - !Ref AlarmsSNSTopic
+      Dimensions:
+      - Name: Namespace
+        Value: craftercms
+      - Name: Service
+        Value: authoring-service
+      - Name: ClusterName
+        Value: {{cluster_name}}
+
+  DeliveryHighCPUAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CloudWatchAlarmsEnabled
+    Properties:
+      AlarmName: {{client_id}}/{{cluster_name}}/delivery-high-cpu-usage
+      AlarmDescription: Delivery in {{client_id}}/{{cluster_name}} pod CPU usage is > 80%
+      Namespace: ContainerInsights
+      MetricName: pod_cpu_utilization
+      Statistic: Average
+      Period: '300'
+      EvaluationPeriods: '1'
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: '80'
+      TreatMissingData: "missing"
+      AlarmActions:
+      - Ref: AlarmsSNSTopic
+      OKActions:
+      - !Ref AlarmsSNSTopic
+      Dimensions:
+      - Name: Namespace
+        Value: craftercms
+      - Name: Service
+        Value: delivery-service
+      - Name: ClusterName
+        Value: {{cluster_name}}
+
+  AuthoringDataVolumeCapacityAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CloudWatchAlarmsEnabled
+    Properties:
+      AlarmName: {{client_id}}/{{cluster_name}}/authoring-data-volume-capacity
+      AlarmDescription: Data Volume usage in Authoring {{client_id}}/{{cluster_name}} pod is less than 20 GB
+      Namespace: ContainerInsights/Prometheus
+      MetricName: kubelet_volume_stats_available_bytes
+      Statistic: Average
+      Period: '300'
+      EvaluationPeriods: '1'
+      ComparisonOperator: LessThanThreshold
+      Threshold: '20000000000'
+      TreatMissingData: "missing"
+      AlarmActions:
+      - Ref: AlarmsSNSTopic
+      OKActions:
+      - !Ref AlarmsSNSTopic
+      Dimensions:
+      - Name: NodeGroup
+        Value: authoring-workers-az1-{{environment_version}}
+      - Name: persistentvolumeclaim
+        Value: data-authoring-0
+      - Name: ClusterName
+        Value: {{cluster_name}}
+
+  AuthoringLogsVolumeUsageAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CloudWatchAlarmsEnabled
+    Properties:
+      AlarmName: {{client_id}}/{{cluster_name}}/authoring-logs-volume-usage
+      AlarmDescription: Logs volume usage in Authoring {{client_id}}/{{cluster_name}} pod is more than 5 GB
+      Namespace: ContainerInsights/Prometheus
+      MetricName: kubelet_volume_stats_used_bytes
+      Statistic: Average
+      Period: '300'
+      EvaluationPeriods: '1'
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: '5000000000'
+      TreatMissingData: "missing"
+      AlarmActions:
+      - Ref: AlarmsSNSTopic
+      OKActions:
+      - !Ref AlarmsSNSTopic
+      Dimensions:
+      - Name: NodeGroup
+        Value: authoring-workers-az1-{{environment_version}}
+      - Name: persistentvolumeclaim
+        Value: logs-authoring-0
+      - Name: ClusterName
+        Value: {{cluster_name}}
+  
+  AuthoringDataVolumeFreeInodesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CloudWatchAlarmsEnabled
+    Properties:
+      AlarmName: {{client_id}}/{{cluster_name}}/authoring-data-volume-free-inodes
+      AlarmDescription: Free inodes in Authoring {{client_id}}/{{cluster_name}} pod are < 100000
+      Namespace: ContainerInsights/Prometheus
+      MetricName: kubelet_volume_stats_available_bytes
+      Statistic: Average
+      Period: '300'
+      EvaluationPeriods: '1'
+      ComparisonOperator: LessThanThreshold
+      Threshold: '100000'
+      TreatMissingData: "missing"
+      AlarmActions:
+      - Ref: AlarmsSNSTopic
+      OKActions:
+      - !Ref AlarmsSNSTopic
+      Dimensions:
+      - Name: NodeGroup
+        Value: authoring-workers-az1-{{environment_version}}
+      - Name: persistentvolumeclaim
+        Value: data-authoring-0
+      - Name: ClusterName
+        Value: {{cluster_name}}
+  
+  S3Endpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      RouteTableIds: !Ref PrivateRouteTableIds
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
+      VpcId: !Ref VpcId
+
+  ESSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Allows access to Elasticsearch domains from the nodes of the {{cluster_name}} cluster"
+      VpcId: !Ref VpcId
+      GroupName: "{{cluster_name}}-es-sg"
+      SecurityGroupIngress:
+        - FromPort: '443'
+          IpProtocol: tcp
+          ToPort: '443'
+          SourceSecurityGroupId: !Ref ClusterNodesSecurityGroupId
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: 0
+          ToPort: 0
+          CidrIp: 0.0.0.0/0
+
+  ElasticsearchDomain:
+    Type: AWS::Elasticsearch::Domain
+    UpdatePolicy:
+       EnableVersionUpgrade: true ### In-place Upgrade
+    Properties:
+      DomainName: '{{cluster_name}}-es'
+      ElasticsearchVersion: !Ref ElasticsearchVersion
+      ElasticsearchClusterConfig:
+        DedicatedMasterEnabled: "false"
+        InstanceCount: "3"
+        ZoneAwarenessEnabled: "true"
+        ZoneAwarenessConfig:
+          AvailabilityZoneCount: "3"
+        InstanceType: "m5.large.elasticsearch"
+      EBSOptions:
+        EBSEnabled: 'true'
+        VolumeSize: 20
+        VolumeType: "gp2"
+      AccessPolicies:
+        Version: 2012-10-17
+        Statement:
+          - Effect: "Allow"
+            Principal: "*"
+            Action: "es:*"
+            Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/{{cluster_name}}-es/*"
+      AdvancedOptions:
+        rest.action.multi.allow_explicit_index: 'true'
+      SnapshotOptions:
+        AutomatedSnapshotStartHour: "{{es_auto_snapshot_start_hour_utc}}"
+      VPCOptions:
+        SubnetIds: !Ref PrivateSubnetIds
+        SecurityGroupIds:
+          - !Ref ESSecurityGroup
+
+  KuberVolumeLifecyclePolicy:
+    Type: AWS::DLM::LifecyclePolicy
+    Properties:
+      Description: "{{cluster_name}} Kubernetes Volume Backups"
+      State: "ENABLED"
+      ExecutionRoleArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/AWSDataLifecycleManagerDefaultRole"
+      PolicyDetails:
+        ResourceTypes:
+          - "VOLUME"
+        TargetTags:
+          - Key: "kubernetes.io/cluster/{{cluster_name}}"
+            Value: "owned"
+        Schedules:
+          - Name: "Daily Backup"
+            CreateRule:
+              Interval: 24
+              IntervalUnit: "HOURS"
+              Times:
+                - "{{kuber_volume_daily_backup_time_utc}}"
+            RetainRule:
+              Count: 3
+            CopyTags: true
+            CrossRegionCopyRules:
+              !If
+              - UseBackupRegion
+              - 
+                - Target: !Ref BackupRegion              
+                  Encrypted: false
+                  CopyTags: true
+                  RetainRule:
+                    Interval: 3
+                    IntervalUnit: "DAYS"    
+              - !Ref 'AWS::NoValue'
+
+  S3BackupBucketLambdaRole:
+    Type: AWS::IAM::Role
+    Condition: UseBackupRegion
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service: lambda.amazonaws.com
+      Policies:
+        - PolicyName: S3BackupBucketLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+              - Effect: Allow
+                Action:
+                  - s3:CreateBucket
+                  - s3:PutBucketPublicAccessBlock
+                  - s3:PutBucketVersioning
+                Resource: !Sub "arn:aws:s3:::${BackupRegionBucketNamePrefix}-*"
+
+  S3BackupBucketLambda:
+    Type: AWS::Lambda::Function
+    Condition: UseBackupRegion
+    Properties:
+      FunctionName: "{{cluster_name}}-s3-backup-bucket-lambda"
+      Runtime: python3.9
+      Role: !GetAtt S3BackupBucketLambdaRole.Arn
+      Handler: index.handler
+      Timeout: 30
+      Code:
+        ZipFile: |
+          import cfnresponse
+          import logging
+          import boto3
+          from botocore.exceptions import ClientError
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          class BackupBucketSetupException(Exception):
+              pass
+
+          def handler(event, context):
+              bucket_name = event['ResourceProperties']['BackupBucketName']
+              bucket_region = event['ResourceProperties']['BackupBucketRegion']
+
+              try:
+                  if event['RequestType'] == 'Create' or event['RequestType'] == 'Update':
+                      client = boto3.client('s3', region_name=bucket_region)
+
+                      try:
+                          if bucket_region == 'us-east-1':
+                              client.create_bucket(Bucket=bucket_name)
+                          else:
+                              client.create_bucket(
+                                  Bucket=bucket_name,
+                                  CreateBucketConfiguration={
+                                      'LocationConstraint': bucket_region
+                                  }
+                              )                          
+
+                          logger.info("Created bucket '%s'", bucket_name)
+                      except ClientError as error:
+                          if error.response['Error']['Code'] == 'BucketAlreadyOwnedByYou':
+                              logger.warning("Bucket '%s' already exists! Using it", bucket_name)
+                          else:
+                              raise
+
+                      client.put_public_access_block(
+                          Bucket=bucket_name,
+                          PublicAccessBlockConfiguration={
+                              'BlockPublicAcls': True,
+                              'IgnorePublicAcls': True,
+                              'BlockPublicPolicy': True,
+                              'RestrictPublicBuckets': True
+                          }
+                      )
+
+                      logger.info("Blocked all public access to bucket '%s'", bucket_name)
+
+                      client.put_bucket_versioning(
+                          Bucket=bucket_name,
+                          VersioningConfiguration={
+                              'Status': 'Enabled'
+                          }
+                      )
+
+                      logger.info("Enabled versioning on bucket '%s'", bucket_name)
+                      logger.info("Setup of backup bucket '%s' complete", bucket_name)
+
+                      response_data = {
+                          'Name': bucket_name,
+                          'Arn': f"arn:aws:s3:::{bucket_name}"
+                      }
+
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, response_data, bucket_name)
+                  elif event['RequestType'] == 'Delete':
+                      logger.info("Please delete the '%s' backup bucket", bucket_name)
+
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, bucket_name)
+              except Exception as error:
+                  logger.exception("Error when setting up backup bucket '%s'", bucket_name)
+
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(error)})
+
+Outputs:
+  ESSecurityGroupId:
+    Value: !Ref ESSecurityGroup
+  ESDomainEndpoint:
+    Value: !GetAtt ElasticsearchDomain.DomainEndpoint
+  S3BackupBucketLambdaArn:
+    Value: !GetAtt [S3BackupBucketLambda, Arn]
+    Condition: UseBackupRegion

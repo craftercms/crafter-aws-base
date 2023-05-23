@@ -1,0 +1,324 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Crafter AWS resources for the account
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - Label:
+        default: CloudWatch SNS notification Email (Required)
+      Parameters:
+      - EmailAddress
+    - Label:
+        default: Recorder Configuration
+      Parameters:
+        - AllSupported
+        - IncludeGlobalResourceTypes
+        - ResourceTypes
+    - Label:
+        default: Delivery Channel Configuration
+      Parameters:
+        - DeliveryChannelName
+        - Frequency
+    ParameterLabels:
+      AllSupported:
+        default: AWS Config Support all resource types
+      IncludeGlobalResourceTypes:
+        default: AWS Config Include global resource types
+      ResourceTypes:
+        default: AWS Config List of resource types if not all supported
+      DeliveryChannelName:
+        default: AWS Config Configuration delivery channel name
+      Frequency:
+        default: AWS Config Snapshot delivery frequency
+
+Parameters:
+  CloudFrontNotificationsEmailAddress:
+    Type: String
+    AllowedPattern: "^[\\x20-\\x45]?[\\w-\\+]+(\\.[\\w]+)*@[\\w-]+(\\.[\\w]+)*(\\.[a-z]{2,})$"
+    ConstraintDescription: Email address required.
+    Default: cloud-ops@craftersoftware.com
+    Description: Enter an email address you want to subscribe to the Amazon SNS topic that will send notifications when a site CloudFront is ready.
+
+  StaticAssetsCacheControlValue:
+    Type: String
+    # 1 year
+    Default: 'max-age=31536000'
+    Description: 'Enter the value of the Cache-Control header that should be used for static assets'    
+
+  AllSupported:
+    Type: String
+    Default: False
+    Description: Indicates whether to record all supported resource types.
+    AllowedValues:
+      - True
+      - False
+
+  IncludeGlobalResourceTypes:
+    Type: String
+    Default: False
+    Description: Indicates whether AWS Config records all supported global resource types.
+    AllowedValues:
+      - True
+      - False
+
+  ResourceTypes:
+    Type: List<String>
+    Description: A list of valid AWS resource types to include in this recording group, such as AWS::EC2::Instance or AWS::CloudTrail::Trail.
+    Default: AWS::CloudFront::Distribution
+
+  DeliveryChannelName:
+    Type: String
+    Default: <Generated>
+    Description: The name of the delivery channel.
+
+  Frequency:
+    Type: String
+    Default: 24hours
+    Description: The frequency with which AWS Config delivers configuration snapshots.
+    AllowedValues:
+      - 1hour
+      - 3hours
+      - 6hours
+      - 12hours
+      - 24hours
+
+  EksAdminTrustedPrincipals:
+    Type: CommaDelimitedList
+    Description: Enter the AWS Principal ARNs that are allowed to assume the EKS admin role
+
+Conditions:
+  IsAllSupported: !Equals
+    - !Ref AllSupported
+    - True
+  IsGeneratedDeliveryChannelName: !Equals
+    - !Ref DeliveryChannelName
+    - <Generated>
+
+Mappings:
+  Settings:
+    FrequencyMap:
+      1hour   : One_Hour
+      3hours  : Three_Hours
+      6hours  : Six_Hours
+      12hours : Twelve_Hours
+      24hours : TwentyFour_Hours
+
+Resources:
+  CloudFrontReadySNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: CloudWatch_Alarm_If_CloudFront_Ready
+      Subscription:
+      - Endpoint:
+          Ref: CloudFrontNotificationsEmailAddress
+        Protocol: email
+      TopicName: CloudWatch_Alarm_If_CloudFront_Ready
+  CloudFrontReadyRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: When in alarm, send message to topic CloudWatch_Alarm_If_CloudFront_Ready
+      EventPattern:
+        source:
+        - aws.config
+        detail-type:
+        - Config Configuration Item Change
+        detail:
+          messageType:
+          - ConfigurationItemChangeNotification
+          configurationItem:
+            resourceType:
+            - AWS::CloudFront::Distribution
+            configurationItemStatus:
+            - ResourceDiscovered
+      Name:
+        Fn::Sub: "${AWS::StackName}-CloudFrontReadyRule"
+      State: ENABLED
+      Targets:
+      - Arn:
+          Ref: CloudFrontReadySNSTopic
+        Id: CloudFrontReadySNSTopic
+        InputTransformer:
+          InputPathsMap:
+            awsRegion: "$.detail.configurationItem.awsRegion"
+            awsAccountId: "$.detail.configurationItem.awsAccountId"
+            domainName: "$.detail.configurationItem.configuration.domainName"
+            resourceType: "$.detail.configurationItem.resourceType"
+            resourceId: "$.detail.configurationItem.resourceId"
+            description: "$.detail.configurationItem.configuration.distributionConfig.comment"
+            configurationItemCaptureTime: "$.detail.configurationItem.configurationItemCaptureTime"
+          InputTemplate: |
+            "On <configurationItemCaptureTime> AWS Config service recorded a creation of a new <resourceType>:"
+            "ID: <resourceId>"
+            "Description: <description>"
+            "Account: <awsAccountId>"
+            "Region: <awsRegion>"
+            "Domain: <domainName>"
+            "For more details open the AWS Config console at https://console.aws.amazon.com/config/home?region=<awsRegion>#/timeline/<resourceType>/<resourceId>/configuration."
+    DependsOn:
+    - CloudFrontReadySNSTopic
+  CloudFrontReadyPolicyDocument:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      PolicyDocument:
+        Id: CloudFrontReadyPolicyDocument
+        Version: "2012-10-17"
+        Statement:
+        - Sid: CloudFrontReadyPolicyDocument
+          Effect: Allow
+          Principal:
+            Service: events.amazonaws.com
+          Action: sns:Publish
+          Resource:
+          - Ref: CloudFrontReadySNSTopic
+      Topics:
+      - Ref: CloudFrontReadySNSTopic
+# AWS Config
+  ConfigBucket:
+    DeletionPolicy: Retain
+    Type: AWS::S3::Bucket
+
+  ConfigBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ConfigBucket
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: AWSConfigBucketPermissionsCheck
+            Effect: Allow
+            Principal:
+              Service:
+                - config.amazonaws.com
+            Action: s3:GetBucketAcl
+            Resource:
+              - !Sub "arn:${AWS::Partition}:s3:::${ConfigBucket}"
+          - Sid: AWSConfigBucketDelivery
+            Effect: Allow
+            Principal:
+              Service:
+                - config.amazonaws.com
+            Action: s3:PutObject
+            Resource:
+              - !Sub "arn:${AWS::Partition}:s3:::${ConfigBucket}/AWSLogs/${AWS::AccountId}/*"
+
+  ConfigRecorderRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - config.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWS_ConfigRole"
+
+  ConfigRecorder:
+    Type: AWS::Config::ConfigurationRecorder
+    DependsOn:
+      - ConfigBucketPolicy
+    Properties:
+      RoleARN: !GetAtt ConfigRecorderRole.Arn
+      RecordingGroup:
+        AllSupported: !Ref AllSupported
+        IncludeGlobalResourceTypes: !Ref IncludeGlobalResourceTypes
+        ResourceTypes: !If
+          - IsAllSupported
+          - !Ref AWS::NoValue
+          - !Ref ResourceTypes
+
+  ConfigDeliveryChannel:
+    Type: AWS::Config::DeliveryChannel
+    DependsOn:
+      - ConfigBucketPolicy
+    Properties:
+      Name: !If
+        - IsGeneratedDeliveryChannelName
+        - !Ref AWS::NoValue
+        - !Ref DeliveryChannelName
+      ConfigSnapshotDeliveryProperties:
+        DeliveryFrequency: !FindInMap
+          - Settings
+          - FrequencyMap
+          - !Ref Frequency
+      S3BucketName: !Ref ConfigBucket
+
+  EksAdminRole:
+    Type: AWS::IAM::Role
+    Properties: 
+      RoleName: eks-admin
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: Allow
+          Principal: 
+            AWS:
+              Ref: EksAdminTrustedPrincipals
+          Action: sts:AssumeRole
+
+  DefaultDeliveryCloudFrontCachingPolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        DefaultTTL: 120
+        MinTTL: 60
+        MaxTTL: 3600
+        Name: "DefaultDeliveryCachingPolicy"
+        ParametersInCacheKeyAndForwardedToOrigin:
+          EnableAcceptEncodingBrotli: true
+          EnableAcceptEncodingGzip: true
+          CookiesConfig:
+            CookieBehavior: 'none'
+          HeadersConfig: 
+            HeaderBehavior: 'whitelist'
+            Headers: ['Origin', 'Host', 'Authorization', 'CloudFront-Is-Desktop-Viewer', 'CloudFront-Is-Mobile-Viewer', 'CloudFront-Is-SmartTV-Viewer', 'CloudFront-Is-Tablet-Viewer']
+          QueryStringsConfig: 
+            QueryStringBehavior: 'all'
+
+  DefaultDeliveryCloudFrontOriginRequestPolicy:
+    Type: AWS::CloudFront::OriginRequestPolicy
+    Properties:
+      OriginRequestPolicyConfig:
+        Name: "DefaultDeliveryOriginRequestPolicy"
+        CookiesConfig:
+          CookieBehavior: 'none'
+        HeadersConfig: 
+          HeaderBehavior: 'whitelist'
+          Headers: ['CloudFront-Forwarded-Proto']
+        QueryStringsConfig: 
+          QueryStringBehavior: 'all'
+
+  DefaultStaticAssetsCloudfrontResponseHeadersPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: "DefaultStaticAssetsCloudfrontResponseHeadersPolicy"
+        CustomHeadersConfig:
+          Items:
+            - Header: Cache-Control
+              Value: !Ref StaticAssetsCacheControlValue
+              Override: true          
+
+Outputs:
+  CloudFrontReadyRule:
+    Value:
+      Ref: CloudFrontReadyRule
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-CloudFrontReadyRule"
+    Description: Event Rule ID
+  DefaultDeliveryCloudFrontCachingPolicy:
+    Value:
+      Ref: DefaultDeliveryCloudFrontCachingPolicy
+    Description: ID of the default CloudFront caching policy used for Delivery LB origins
+  DefaultDeliveryCloudFrontOriginRequestPolicy:
+    Value:
+      Ref: DefaultDeliveryCloudFrontOriginRequestPolicy
+    Description: ID of the default CloudFront origin request policy used for Delivery LB origins
+  DefaultStaticAssetsCloudfrontResponseHeadersPolicy:
+    Value:
+      Ref: DefaultStaticAssetsCloudfrontResponseHeadersPolicy
+    Description: ID of the default CloudFront response headers policy used for static assets

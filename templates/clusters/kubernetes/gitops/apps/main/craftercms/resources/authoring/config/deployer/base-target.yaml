@@ -1,0 +1,100 @@
+environment: ${env:CRAFTER_ENVIRONMENT}
+environmentVersion: ${env:ENVIRONMENT_VERSION}
+
+aws:
+  region: ${env:AWS_DEFAULT_REGION}
+  backupRegion: ${env:AWS_BACKUP_REGION}
+  disableS3BucketClear: ${env:DISABLE_BUCKET_CLEAR_ON_TARGET_DELETION}
+  disableCloudFormationDeletion: ${env:DISABLE_CLOUDFORMATION_DELETION_ON_TARGET_DELETION}  
+  cloudformation:
+    enableBlobsBucketsCreation: ${env:ENABLE_BLOBS_BUCKETS_CREATION}
+    enableBackupBucketsCreation: ${env:ENABLE_BACKUP_BUCKETS_CREATION}
+    enableS3OriginFailover: ${env:ENABLE_S3_ORIGIN_FAILOVER}
+    s3ReplicationRoleArn: ${env:S3_REPLICATION_ROLE_ARN}
+    s3BackupBucketLambdaArn: ${env:S3_BACKUP_BUCKET_LAMBDA_ARN}
+    stackNamePrefix: ${env:CLOUDFORMATION_STACK_NAME_PREFIX}
+    s3BucketNamePrefix: ${env:S3_BUCKET_NAME_PREFIX}
+    s3BackupBucketNamePrefix: ${env:S3_BACKUP_BUCKET_NAME_PREFIX}
+    deliveryLBDomainName: ${env:DELIVERY_LB_DOMAIN_NAME}
+    cloudfrontSecretHeaderName: ${env:CLOUDFRONT_SECRET_HEADER_NAME}
+    cloudfrontSecretHeaderValue: ${env:CLOUDFRONT_SECRET_HEADER_VALUE}
+    cloudFrontOriginAccessIdentityId: ${env:CLOUDFRONT_ORIGIN_ACCESS_IDENTITY_ID}
+    cloudFrontLoggingS3BucketName: ${env:CLOUDFRONT_LOGGING_S3_BUCKET_NAME}.s3.amazonaws.com
+
+git:
+  httpsServer:
+    baseUrl: ${env:GIT_HTTPS_SERVER_BASE_URL}
+    username: ${env:GIT_HTTPS_SERVER_USERNAME}
+    password: ${env:GIT_HTTPS_SERVER_PASSWORD}
+
+target:
+  localRepoPath: ${deployer.main.deployments.folderPath}/${target.siteName}
+  engineUrl: ${env:ENGINE_URL}
+  engineManagementToken: ${env:ENGINE_MANAGEMENT_TOKEN}
+  deployment:
+    scheduling:
+      # The cron expression used for scheduling target deployments
+      cron: ${env:SCHEDULED_DEPLOYMENTS_CRON}
+  search:
+    serverUrl: ${env:SEARCH_URL}
+    accessToken:
+      value: ${env:SEARCH_ACCESS_TOKEN}
+    elasticsearch:
+      # Single Cluster
+      urls:
+        - ${env:ES_URL}
+      username: ${env:ES_USERNAME}
+      password: ${env:ES_PASSWORD}
+      timeout:
+        # The connection timeout in milliseconds, if set to -1 the default will be used
+        connect: ${env:ES_CONNECT_TIMEOUT}
+        # The socket timeout in milliseconds, if set to -1 the default will be used
+        socket: ${env:ES_SOCKET_TIMEOUT}
+      # The number of threads to use, if set to -1 the default will be used
+      threads: -1
+      # Indicates if keep alive should be enabled for sockets used by the search client, defaults to false
+      keepAlive: false
+
+      # Multiple Clusters
+#      readCluster:
+#        urls:
+#        username:
+#        password:
+#      writeClusters:
+#        - urls:
+#          username:
+#          password:
+#        - urls:
+#          username:
+#          password:
+
+      # Settings used for all indices
+      indexSettings:
+        - key: "index.mapping.total_fields.limit"
+          value : 10000
+        - key: "index.mapping.depth.limit"
+          value: 50
+
+  notifications:
+    mail:
+      server:
+        # The hostname of the mail server used to send notifications
+        host: ${env:MAIL_HOST}
+        # The port of the mail server used to send notifications
+        port: ${env:MAIL_PORT}
+        # The username of the mail server used to send notifications
+        username: ${env:MAIL_USERNAME}
+        # The password of the mail server used to send notifications
+        password: ${env:MAIL_PASSWORD}
+      # The mail protocol used on notifications
+      protocol: smtp
+      # The character encoding used on emails
+      encoding: UTF-8
+      # The JavaMail properties, empty by default
+      properties:
+        - "mail.smtp.auth=${env:MAIL_SMTP_AUTH}"
+        - "mail.smtp.starttls.enable=${env:MAIL_SMTP_STARTTLS}"
+      # The from field to use in the emails
+      from: ${env:MAIL_ADDRESS}
+      # The subject field to use in the emails
+      subject: '[${env:CLIENT_ID}-${env:CRAFTER_ENVIRONMENT}][${target.id}] Deployment Report'

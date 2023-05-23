@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: authoring-pv-0
+spec:
+  storageClassName: "expandable-gp3"
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadWriteOnce
+  claimRef:
+    namespace: craftercms
+    name: data-authoring-0
+  awsElasticBlockStore:
+    fsType: ext4
+    # Replace with actual volume ID
+    volumeID: aws://{{aws_az_1}}/VOLUME_ID
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+          - key: failure-domain.beta.kubernetes.io/region
+            operator: In
+            values:
+              - {{aws_region}}
+          - key: failure-domain.beta.kubernetes.io/zone
+            operator: In
+            values:
+              - {{aws_az_1}}
