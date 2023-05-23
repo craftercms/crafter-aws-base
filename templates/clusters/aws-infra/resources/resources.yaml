@@ -10,10 +10,6 @@ Parameters:
     Type: CommaDelimitedList
   ClusterNodesSecurityGroupId:
     Type: String
-  ElasticsearchVersion:
-    Type: String
-    AllowedValues: ['6.8', '6.7', '7.7, ''7.4', '7.1']
-    Default: 6.8
   BackupRegion:
     Type: String
     Default: ''
@@ -59,6 +55,7 @@ Conditions:
     !Not [!Equals [!Ref AuthoringLoadBalancerArn, '']]
   CloudWatchAlarmsEnabled:
     !Equals [!Ref CloudWatchAlarmsEnabled, true]
+  
 
 Resources:
   AlarmsSNSTopic:
@@ -336,64 +333,13 @@ Resources:
         Value: data-authoring-0
       - Name: ClusterName
         Value: {{cluster_name}}
-  
+
   S3Endpoint:
     Type: AWS::EC2::VPCEndpoint
     Properties:
       RouteTableIds: !Ref PrivateRouteTableIds
       ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
       VpcId: !Ref VpcId
-
-  ESSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: "Allows access to Elasticsearch domains from the nodes of the {{cluster_name}} cluster"
-      VpcId: !Ref VpcId
-      GroupName: "{{cluster_name}}-es-sg"
-      SecurityGroupIngress:
-        - FromPort: '443'
-          IpProtocol: tcp
-          ToPort: '443'
-          SourceSecurityGroupId: !Ref ClusterNodesSecurityGroupId
-      SecurityGroupEgress:
-        - IpProtocol: -1
-          FromPort: 0
-          ToPort: 0
-          CidrIp: 0.0.0.0/0
-
-  ElasticsearchDomain:
-    Type: AWS::Elasticsearch::Domain
-    UpdatePolicy:
-       EnableVersionUpgrade: true ### In-place Upgrade
-    Properties:
-      DomainName: '{{cluster_name}}-es'
-      ElasticsearchVersion: !Ref ElasticsearchVersion
-      ElasticsearchClusterConfig:
-        DedicatedMasterEnabled: "false"
-        InstanceCount: "3"
-        ZoneAwarenessEnabled: "true"
-        ZoneAwarenessConfig:
-          AvailabilityZoneCount: "3"
-        InstanceType: "m5.large.elasticsearch"
-      EBSOptions:
-        EBSEnabled: 'true'
-        VolumeSize: 20
-        VolumeType: "gp2"
-      AccessPolicies:
-        Version: 2012-10-17
-        Statement:
-          - Effect: "Allow"
-            Principal: "*"
-            Action: "es:*"
-            Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/{{cluster_name}}-es/*"
-      AdvancedOptions:
-        rest.action.multi.allow_explicit_index: 'true'
-      SnapshotOptions:
-        AutomatedSnapshotStartHour: "{{es_auto_snapshot_start_hour_utc}}"
-      VPCOptions:
-        SubnetIds: !Ref PrivateSubnetIds
-        SecurityGroupIds:
-          - !Ref ESSecurityGroup
 
   KuberVolumeLifecyclePolicy:
     Type: AWS::DLM::LifecyclePolicy
@@ -543,10 +489,6 @@ Resources:
                   cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(error)})
 
 Outputs:
-  ESSecurityGroupId:
-    Value: !Ref ESSecurityGroup
-  ESDomainEndpoint:
-    Value: !GetAtt ElasticsearchDomain.DomainEndpoint
   S3BackupBucketLambdaArn:
     Value: !GetAtt [S3BackupBucketLambda, Arn]
     Condition: UseBackupRegion

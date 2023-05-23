@@ -136,7 +136,10 @@ spec:
         fsGroup: 1000
       nodeSelector:
         node-type: delivery
-      volumes:   
+      volumes:
+        - name: es-certs
+          secret:
+            secretName: elasticsearch-es-http-certs-public     
         - name: config-encryption-key-salt
           secret:
             secretName: config-encryption-key-salt
@@ -186,7 +189,11 @@ spec:
               memory: {{delivery_tomcat_container_max_memory}}
           ports:
             - containerPort: 8080
-          volumeMounts: 
+          volumeMounts:
+            - name: es-certs
+              subPath: tls.crt
+              mountPath: /opt/crafter/trusted-certs/es-tls.crt
+              readOnly: true          
             - name: crafter-license
               subPath: crafter.lic
               mountPath: /opt/crafter/bin/apache-tomcat/shared/classes/crafter/license/crafter.lic
@@ -221,8 +228,15 @@ spec:
               value: "{{s3_current_region_bucket_name_prefix}}"
             - name: S3_BUCKET_ROOT_PATH
               value: "{{s3_current_region_bucket_name_prefix}}-site-{siteName}/{{environment_version}}"
+            - name: ES_USERNAME
+              value: elastic
+            - name: ES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: elasticsearch-es-elastic-user
+                  key: elastic
             - name: ES_URL
-              value: "{{es_url}}"
+              value: "https://elasticsearch-es-http:9200"
             - name: ENGINE_MANAGEMENT_TOKEN
               value: "{{crafter_management_token}}"
             - name: CRAFTER_ENCRYPTION_KEY
@@ -247,4 +261,4 @@ spec:
           env:
             - name: CRON_SCHEDULE
               # Every hour
-              value: '0 * * * *'
+              value: '0 * * * *'             

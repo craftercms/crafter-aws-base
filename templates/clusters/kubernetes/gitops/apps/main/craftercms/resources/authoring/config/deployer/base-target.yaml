@@ -31,14 +31,16 @@ target:
   localRepoPath: ${deployer.main.deployments.folderPath}/${target.siteName}
   engineUrl: ${env:ENGINE_URL}
   engineManagementToken: ${env:ENGINE_MANAGEMENT_TOKEN}
+  studioUrl: ${env:STUDIO_URL}
+  studioManagementToken: ${env:STUDIO_MANAGEMENT_TOKEN}
+  translation:
+    # Indicates if the translation features should be enabled for the target
+    enable: false
   deployment:
     scheduling:
       # The cron expression used for scheduling target deployments
       cron: ${env:SCHEDULED_DEPLOYMENTS_CRON}
   search:
-    serverUrl: ${env:SEARCH_URL}
-    accessToken:
-      value: ${env:SEARCH_ACCESS_TOKEN}
     elasticsearch:
       # Single Cluster
       urls:

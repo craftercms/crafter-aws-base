@@ -1,0 +1,26 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: eck-operator
+  namespace: argocd
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+spec:
+  destination:
+    namespace: elastic-system
+    server: {{ .Values.spec.destination.server }}
+  project: {{ .Values.spec.project }}
+  source:
+    repoURL: 'https://helm.elastic.co'
+    chart: eck-operator
+    targetRevision: 2.3.0
+    helm:
+      values: |
+        nodeSelector:
+          node-type: k8s-support
+  ignoreDifferences:
+  - group: admissionregistration.k8s.io
+    kind: ValidatingWebhookConfiguration
+    name: elastic-operator.elastic-system.k8s.elastic.co
+    jqPathExpressions:
+    - '.webhooks[]?.clientConfig.caBundle'

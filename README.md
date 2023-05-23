@@ -10,9 +10,8 @@ This project provides scripts to setup an EKS Kubernetes cluster with Crafter CM
 2. Install kubectl (https://kubernetes.io/docs/tasks/tools/install-kubectl/)
 3. Install eksctl (https://docs.aws.amazon.com/eks/latest/userguide/eksctl.html)
 4. Install k9s (https://github.com/derailed/k9s)
-5. Instal kubectx (https://github.com/ahmetb/kubectx)
-6. Install jq (https://stedolan.github.io/jq/download/)
-7. Create a fork of this repository for the client (e.g. `crafter-aws-tpci`)
+5. Install jq (https://stedolan.github.io/jq/download/)
+5. Create a fork of this repository for the client (e.g. `crafter-aws-tpci`)
 
 ## Run the account setup script
 
@@ -64,19 +63,27 @@ then name the file `config.prod-blue.sh`. If there's always going to be a single
 2. Login to ArgoCD at http://localhost:18080 from your browser
 3. Click on the gears icon on the left nav bar (Settings), then Repositories.
 4. Connect to the repo at `GITOPS_REPO_URL`, either through SSH or HTTPs.
-   - **Application Name:** crafter-aws-{CLIENT_NAME}
+   - **Name:** crafter-aws-{CLIENT_NAME}
    - **Project:** default
    - **Repository URL:** URL of the repository you connected to previously
    - **SSH Private key data:** Private key (Given beforehand)
 5. Click on `Create`
-6. Click on `Sync` and then `Synchronize` in the `crafter-cloud-apps` app. All the Kubernetes addons and the 
+6. Create `crafter-cloud-app` by clicking the `NEW APP` icon on the Applications page. Fill the following configurations and the leave the rest as default. 
+   - **Name:** crafter-cloud-apps
+   - **Project:** default
+   - **Repository URL:** URL of the repository you connected to previously
+   - **Revision:** master
+   - **Path:** clusters/`CLUSTER_REGION`/`CLUSTER_NAME`/kubernetes/gitops/apps/bootstrap
+   - **Cluster URL:** https://kubernetes.default.svc
+
+7. Click on `Sync` and then `Synchronize` in the `crafter-cloud-apps` app. All the Kubernetes addons and the 
 
 ![Crafter Cloud Apps Synced](argocd-crafter-cloud-apps-unsynced.png)
 
-7. Commit the change and push it to the repo. Click on the `Refresh` button of `craftercms` app.
-8. Click on `Sync` and then `Synchronize` on the `craftercms` app.
-9. Get the Authoring LB from `k9s` (by entering `:ingress`), or by running `kubectl -n craftercms get ingress` 
-10. Finally enter `http://AUTHORING_LB/studio` in your browser, Studio should appear. You should be able to login 
+8. Commit the change and push it to the repo. Click on the `Refresh` button of `craftercms` app.
+9. Click on `Sync` and then `Synchronize` on the `craftercms` app.
+10. Get the Authoring LB from `k9s` (by entering `:ingress`), or by running `kubectl -n craftercms get ingress` 
+11. Finally enter `http://AUTHORING_LB/studio` in your browser, Studio should appear. You should be able to login 
 with `admin/admin`.
 
 That's it! Crafter CMS is up and running in a Kubernetes cluster. Remember to configure the Authoring ingress at

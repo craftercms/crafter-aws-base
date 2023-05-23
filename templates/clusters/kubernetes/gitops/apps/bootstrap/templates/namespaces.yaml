@@ -19,6 +19,15 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
+  name: elastic-system
+  labels:
+    name: elastic-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
   name: craftercms
   labels:
     name: craftercms

@@ -1,0 +1,89 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: elasticsearch-pv-0
+spec:
+  storageClassName: "expandable-gp3"
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadWriteOnce
+  claimRef:
+    namespace: craftercms
+    name: elasticsearch-data-elasticsearch-es-default-0
+  awsElasticBlockStore:
+    fsType: ext4
+    # Replace with actual volume ID
+    volumeID: aws://{{aws_az_1}}/VOLUME_ID
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+          - key: failure-domain.beta.kubernetes.io/region
+            operator: In
+            values:
+              - {{aws_region}}
+          - key: failure-domain.beta.kubernetes.io/zone
+            operator: In
+            values:
+              - {{aws_az_1}}
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: elasticsearch-pv-1
+spec:
+  storageClassName: "expandable-gp3"
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadWriteOnce
+  claimRef:
+    namespace: craftercms
+    name: elasticsearch-data-elasticsearch-es-default-1
+  awsElasticBlockStore:
+    fsType: ext4
+    # Replace with actual volume ID
+    volumeID: aws://{{aws_az_2}}/VOLUME_ID
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+          - key: failure-domain.beta.kubernetes.io/region
+            operator: In
+            values:
+              - {{aws_region}}
+          - key: failure-domain.beta.kubernetes.io/zone
+            operator: In
+            values:
+              - {{aws_az_2}}
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: elasticsearch-pv-2
+spec:
+  storageClassName: "expandable-gp3"
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadWriteOnce
+  claimRef:
+    namespace: craftercms
+    name: elasticsearch-data-elasticsearch-es-default-2
+  awsElasticBlockStore:
+    fsType: ext4
+    # Replace with actual volume ID
+    volumeID: aws://{{aws_az_3}}/VOLUME_ID
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+          - key: failure-domain.beta.kubernetes.io/region
+            operator: In
+            values:
+              - {{aws_region}}
+          - key: failure-domain.beta.kubernetes.io/zone
+            operator: In
+            values:
+              - {{aws_az_3}}

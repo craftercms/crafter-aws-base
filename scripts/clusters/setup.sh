@@ -61,7 +61,6 @@ find . -type f ! -name setup.sh -exec sed -i "s/{{s3_current_region_bucket_name_
 find . -type f ! -name setup.sh -exec sed -i "s/{{s3_backup_region_bucket_name_prefix}}/$S3_BACKUP_REGION_BUCKET_NAME_PREFIX/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s/{{cloudfront_logging_s3_bucket_name}}/$CLOUDFRONT_LOGGING_S3_BUCKET_NAME/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s/{{cloudfront_oai_id}}/$cloudfront_oai_id/g" {} \;
-find . -type f ! -name setup.sh -exec sed -i "s/{{es_auto_snapshot_start_hour_utc}}/$ES_AUTO_SNAPSHOT_START_HOUR_UTC/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s/{{kuber_volume_daily_backup_time_utc}}/$KUBER_VOLUME_DAILY_BACKUP_TIME_UTC/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s/{{environment}}/$ENVIRONMENT/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s/{{environment_version}}/$ENVIRONMENT_VERSION/g" {} \;

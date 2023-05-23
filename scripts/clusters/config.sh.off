@@ -8,11 +8,11 @@ export ENVIRONMENT=default
 # Required
 export ENVIRONMENT_VERSION=v1
 # Required
-export EKS_VERSION=1.25
+export EKS_VERSION=1.23
 # Required
-export EKSCTL_VERSION=v0.137.0
+export EKSCTL_VERSION=
 # Required
-export KUBECTL_VERSION=1.25.7
+export KUBECTL_VERSION=
 # Required
 export K9S_VERSION=
 # Required (default 9am EDT)
@@ -38,9 +38,9 @@ export AWS_BACKUP_REGION=
 # Optional, specify for multi-region delivery
 export AWS_MAIN_CLUSTER_REGION=
 # Required. Authoring worker groups can be also used for standalone deployers
-export AUTHORING_WORKER_INSTANCE_TYPE=m6i.xlarge
+export AUTHORING_WORKER_INSTANCE_TYPE=m5.xlarge
 # Required
-export DELIVERY_WORKER_INSTANCE_TYPE=m6i.xlarge
+export DELIVERY_WORKER_INSTANCE_TYPE=m5.xlarge
 # Required
 export AUTHORING_TOMCAT_CONTAINER_MIN_CPU=2
 # Required. Should match the number of Authoring license cores
@@ -107,8 +107,6 @@ export CLOUDFRONT_LOGGING_S3_BUCKET_NAME=$CLIENT_ID-$CLUSTER_NAME_PREFIX-cloudfr
 export GITOPS_REPO_URL=
 # Required (the Git branch, tag or commit with the config files to deploy)
 export GITOPS_REPO_REVISION=master
-# Required (format h)
-export ES_AUTO_SNAPSHOT_START_HOUR_UTC=
 # Required (format hh:mm)
 export KUBER_VOLUME_DAILY_BACKUP_TIME_UTC=
 # All mail properties below are for emails sent by Crafter

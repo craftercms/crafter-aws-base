@@ -1,0 +1,35 @@
+apiVersion: elasticsearch.k8s.elastic.co/v1
+kind: Elasticsearch
+metadata:
+  name: elasticsearch
+spec:
+  version: 7.17.1
+  nodeSets:
+    - name: default
+      count: 3
+      config:
+        # most Elasticsearch configuration parameters are possible to set, e.g: node.attr.attr_name: attr_value
+        node.roles: ["master", "data", "ingest", "ml"]
+      podTemplate:
+        spec:
+          nodeSelector:
+            node-type: elasticsearch
+          containers:
+            - name: elasticsearch
+              # specify resource limits and requests. As of 7.11, JVM heap size is managed automatically based on these limits
+              resources:
+                requests:
+                  cpu: 1
+                  memory: 6Gi
+                limits:
+                  cpu: 2
+                  memory: 6Gi
+      volumeClaimTemplates:
+        - metadata:
+            name: elasticsearch-data # Do not change this name unless you set up a volume mount for the data path.
+          spec:
+            accessModes: [ "ReadWriteOnce" ]
+            storageClassName: expandable-gp3
+            resources:
+              requests:
+                storage: 20Gi

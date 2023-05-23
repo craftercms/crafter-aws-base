@@ -122,6 +122,9 @@ spec:
       nodeSelector:
         node-type: authoring
       volumes:
+        - name: es-certs
+          secret:
+            secretName: elasticsearch-es-http-certs-public
         # # Uncomment on multi-region (main region)
         # - name: git-https-server-cert
         #   secret:
@@ -190,6 +193,10 @@ spec:
           ports:
             - containerPort: 8080
           volumeMounts:
+            - name: es-certs
+              subPath: tls.crt
+              mountPath: /opt/crafter/trusted-certs/es-tls.crt
+              readOnly: true
             - name: gitconfig
               subPath: .gitconfig
               mountPath: /home/crafter/.gitconfig
@@ -239,8 +246,15 @@ spec:
               value: '200'
             - name: S3_BUCKET_NAME_PREFIX
               value: "{{s3_current_region_bucket_name_prefix}}"
+            - name: ES_USERNAME
+              value: elastic
+            - name: ES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: elasticsearch-es-elastic-user
+                  key: elastic
             - name: ES_URL
-              value: "{{es_url}}"
+              value: "https://elasticsearch-es-http:9200"
             - name: MAIL_ADDRESS
               value: "{{mail_address}}"
             - name: MAIL_HOST
@@ -324,6 +338,10 @@ spec:
           ports:
             - containerPort: 9191
           volumeMounts:
+            - name: es-certs
+              subPath: tls.crt
+              mountPath: /opt/crafter/trusted-certs/es-tls.crt
+              readOnly: true
             - name: gitconfig
               subPath: .gitconfig
               mountPath: /home/crafter/.gitconfig
@@ -404,8 +422,15 @@ spec:
               value: "{{disable_cloudformation_deletion_on_target_deletion}}"                                            
             - name: DEPLOYER_JAVA_OPTS
               value: "-server -Xss1024K -Xms1G -XX:MaxRAMPercentage=75.0"
+            - name: ES_USERNAME
+              value: elastic
+            - name: ES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: elasticsearch-es-elastic-user
+                  key: elastic
             - name: ES_URL
-              value: "{{es_url}}"
+              value: "https://elasticsearch-es-http:9200"
             - name: ES_CONNECT_TIMEOUT
               # 10 secs
               value: "10000"

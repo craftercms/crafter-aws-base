@@ -212,6 +212,49 @@ managedNodeGroups:
     volumeSize: 20
     privateNetworking: true
 
+  # ES workers
+  - name: es-workers-az1-v1
+    tags:
+      # EC2 tags required for cluster-autoscaler auto-discovery
+      k8s.io/cluster-autoscaler/enabled: "true"
+      k8s.io/cluster-autoscaler/{{cluster_name}}: "owned"
+    labels:
+      node-type: elasticsearch
+    instanceType: m5.large
+    availabilityZones: ["{{aws_az_1}}"]
+    minSize: 1
+    maxSize: 10
+    volumeSize: 20
+    privateNetworking: true
+
+  - name: es-workers-az2-v1
+    tags:
+      # EC2 tags required for cluster-autoscaler auto-discovery
+      k8s.io/cluster-autoscaler/enabled: "true"
+      k8s.io/cluster-autoscaler/{{cluster_name}}: "owned"
+    labels:
+      node-type: elasticsearch
+    instanceType: m5.large
+    availabilityZones: ["{{aws_az_2}}"]
+    minSize: 1
+    maxSize: 10
+    volumeSize: 20
+    privateNetworking: true
+
+  - name: es-workers-az3-v1
+    tags:
+      # EC2 tags required for cluster-autoscaler auto-discovery
+      k8s.io/cluster-autoscaler/enabled: "true"
+      k8s.io/cluster-autoscaler/{{cluster_name}}: "owned"
+    labels:
+      node-type: elasticsearch
+    instanceType: m5.large
+    availabilityZones: ["{{aws_az_3}}"]
+    minSize: 1
+    maxSize: 10
+    volumeSize: 20
+    privateNetworking: true
+
   # Authoring workers
   - name: authoring-workers-az1-v1
     tags:

@@ -9,7 +9,6 @@ data:
   fluent-bit.conf: |
     [SERVICE]
         Flush                     5
-        Grace                     30
         Log_Level                 info
         Daemon                    off
         Parsers_File              parsers.conf
@@ -20,7 +19,7 @@ data:
         storage.sync              normal
         storage.checksum          off
         storage.backlog.mem_limit 5M
-        
+
     @INCLUDE application-log.conf
     @INCLUDE dataplane-log.conf
     @INCLUDE host-log.conf
@@ -31,7 +30,10 @@ data:
         Tag                 application.*
         Exclude_Path        /var/log/containers/cloudwatch-agent*, /var/log/containers/fluent-bit*, /var/log/containers/aws-node*, /var/log/containers/kube-proxy*
         Path                /var/log/containers/*.log
-        multiline.parser    docker, cri
+        Docker_Mode         On
+        Docker_Mode_Flush   5
+        Docker_Mode_Parser  container_firstline
+        Parser              docker
         DB                  /var/fluent-bit/state/flb_container.db
         Mem_Buf_Limit       50MB
         Skip_Long_Lines     On
@@ -44,7 +46,7 @@ data:
         Name                tail
         Tag                 application.*
         Path                /var/log/containers/fluent-bit*
-        multiline.parser    docker, cri
+        Parser              docker
         DB                  /var/fluent-bit/state/flb_log.db
         Mem_Buf_Limit       5MB
         Skip_Long_Lines     On
@@ -55,7 +57,10 @@ data:
         Name                tail
         Tag                 application.*
         Path                /var/log/containers/cloudwatch-agent*
-        multiline.parser    docker, cri
+        Docker_Mode         On
+        Docker_Mode_Flush   5
+        Docker_Mode_Parser  cwagent_firstline
+        Parser              docker
         DB                  /var/fluent-bit/state/flb_cwagent.db
         Mem_Buf_Limit       5MB
         Skip_Long_Lines     On
@@ -101,7 +106,10 @@ data:
         Name                tail
         Tag                 dataplane.tail.*
         Path                /var/log/containers/aws-node*, /var/log/containers/kube-proxy*
-        multiline.parser    docker, cri
+        Docker_Mode         On
+        Docker_Mode_Flush   5
+        Docker_Mode_Parser  container_firstline
+        Parser              docker
         DB                  /var/fluent-bit/state/flb_dataplane_tail.db
         Mem_Buf_Limit       50MB
         Skip_Long_Lines     On
@@ -132,7 +140,7 @@ data:
         auto_create_group   true
         extra_user_agent    container-insights
         log_retention_days  ${LOG_RETENTION_DAYS}
-
+    
   host-log.conf: |
     [INPUT]
         Name                tail
@@ -183,6 +191,12 @@ data:
         log_retention_days  ${LOG_RETENTION_DAYS}
 
   parsers.conf: |
+    [PARSER]
+        Name                docker
+        Format              json
+        Time_Key            time
+        Time_Format         %Y-%m-%dT%H:%M:%S.%LZ
+
     [PARSER]
         Name                syslog
         Format              regex
