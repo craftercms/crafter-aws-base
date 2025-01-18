@@ -68,13 +68,14 @@ iam:
       attachPolicyARNs:
       - "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
       - "arn:aws:iam::aws:policy/AWSXrayWriteOnlyAccess"
-      attachPolicy:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Action:
-              - s3:PutObject
-            Resource: "*"
+      # S3 log-forwarding Config
+      # attachPolicy:
+      #   Version: 2012-10-17
+      #   Statement:
+      #     - Effect: Allow
+      #       Action:
+      #         - s3:PutObject
+      #       Resource: "*"
     - metadata:
         name: external-secrets
         namespace: external-secrets

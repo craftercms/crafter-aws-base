@@ -38,7 +38,7 @@ spec:
           serviceAccountName: upgrade-nodegroups
           containers:
             - name: eksctl
-              image: weaveworks/eksctl:$EKSCTL_VERSION
+              image: weaveworks/eksctl:latest
               imagePullPolicy: Always
               args: ["upgrade", "nodegroup", "--cluster=$CLUSTER_NAME", "--name=$name"]
           restartPolicy: Never

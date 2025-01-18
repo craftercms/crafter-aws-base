@@ -8,13 +8,13 @@ export ENVIRONMENT=default
 # Required
 export ENVIRONMENT_VERSION=v1
 # Required
-export EKS_VERSION=1.31
+export EKS_VERSION=1.32
 # Required
-export EKSCTL_VERSION=v0.191.0
+export EKSCTL_VERSION=v0.201.0
 # Required (use versions specified in https://docs.aws.amazon.com/eks/latest/userguide/install-kubectl.html)
-export KUBECTL_VERSION=v1.31.0
+export KUBECTL_VERSION=v1.32.0
 # Required
-export K9S_VERSION=v0.32.5
+export K9S_VERSION=v0.32.7
 # Required (default 9am EDT)
 export UPGRADE_NODES_CRON_UTC='0 13 * * 0'
 # Leave always empty
@@ -106,8 +106,8 @@ export S3_CURRENT_REGION_BUCKET_NAME_PREFIX=$S3_BUCKET_NAME_BASE_PREFIX-r1
 export S3_BACKUP_REGION_BUCKET_NAME_PREFIX=$S3_BUCKET_NAME_BASE_PREFIX-r2
 # Required
 export CLOUDFRONT_LOGGING_S3_BUCKET_NAME=$CLIENT_ID-$CLUSTER_NAME_PREFIX-cloudfront-logs
-# Required
-export CLUSTER_LOGS_S3_BUCKET_NAME=$CLIENT_ID-$CLUSTER_NAME_PREFIX-logs
+# Required (S3 Log Forwarding Config)
+# export CLUSTER_LOGS_S3_BUCKET_NAME=$CLIENT_ID-$CLUSTER_NAME_PREFIX-logs
 # Required (normally it's just the URL of this Git repo)
 export GITOPS_REPO_URL=
 # Required (the Git branch, tag or commit with the config files to deploy)

@@ -87,14 +87,18 @@ data:
         extra_user_agent    container-insights
         log_retention_days  ${LOG_RETENTION_DAYS}
 
-    [OUTPUT]
-        Name s3
-        Match *
-        Log_key log
-        Bucket ${CLUSTER_LOGS_BUCKET}
-        Region ${AWS_REGION}
-        Store_dir /tmp/fluent-bit/s3
-        Total_file_size 10M
+# S3 Log Forwarding Config
+#   [OUTPUT]
+#     Name s3
+#     Match *
+#     Log_key log
+#     Bucket ${CLUSTER_LOGS_BUCKET}
+#     Region ${AWS_REGION}
+#     Store_dir /tmp/fluent-bit/s3
+#     Total_file_size 10M
+#     s3_key_format /%Y/%m/%d/$TAG[4]/$TAG[6].%H_%M_%S.log
+#     s3_key_format_tag_delimiters ._
+#     static_file_path On
 
   dataplane-log.conf: |
     [INPUT]
@@ -143,14 +147,18 @@ data:
         extra_user_agent    container-insights
         log_retention_days  ${LOG_RETENTION_DAYS}
         
-    [OUTPUT]
-        Name s3
-        Match *
-        Log_key log
-        Bucket ${CLUSTER_LOGS_BUCKET}
-        Region ${AWS_REGION}
-        Store_dir /tmp/fluent-bit/s3
-        Total_file_size 10M
+# S3 Log Forwarding Config
+#   [OUTPUT]
+#     Name s3
+#     Match *
+#     Log_key log
+#     Bucket ${CLUSTER_LOGS_BUCKET}
+#     Region ${AWS_REGION}
+#     Store_dir /tmp/fluent-bit/s3
+#     Total_file_size 10M
+#     s3_key_format /%Y/%m/%d/$TAG[4]/$TAG[6].%H_%M_%S.log
+#     s3_key_format_tag_delimiters ._
+#     static_file_path On
 
   host-log.conf: |
     [INPUT]
@@ -201,14 +209,18 @@ data:
         extra_user_agent    container-insights
         log_retention_days  ${LOG_RETENTION_DAYS}
     
-    [OUTPUT]
-        Name s3
-        Match *
-        Log_key log
-        Bucket ${CLUSTER_LOGS_BUCKET}
-        Region ${AWS_REGION}
-        Store_dir /tmp/fluent-bit/s3
-        Total_file_size 10M
+# S3 Log Forwarding Config
+#   [OUTPUT]
+#     Name s3
+#     Match *
+#     Log_key log
+#     Bucket ${CLUSTER_LOGS_BUCKET}
+#     Region ${AWS_REGION}
+#     Store_dir /tmp/fluent-bit/s3
+#     Total_file_size 10M
+#     s3_key_format /%Y/%m/%d/$TAG[4]/$TAG[6].%H_%M_%S.log
+#     s3_key_format_tag_delimiters ._
+#     static_file_path On
 
   parsers.conf: |
     [PARSER]

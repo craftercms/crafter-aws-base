@@ -7,5 +7,7 @@
 export REGION=
 # Required
 export AWS_PROFILE=
+# Required (use a no more than 5 letters acronym if possible)
+export CLIENT_ID=
 # Required
 export PAGER_DUTY_INTEGRATION_URL=

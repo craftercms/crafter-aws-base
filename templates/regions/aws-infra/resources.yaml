@@ -2,8 +2,14 @@ AWSTemplateFormatVersion: 2010-09-09
 Description: Crafter AWS resources for the region
 
 Parameters:
+  ClientId:
+    Type: String
   PagerDutyIntegrationUrl:
     Type: String
+
+Conditions:
+  IsUSEast1Region: 
+    !Equals ['us-east-1', !Ref "AWS::Region"]
 
 Resources:
   RegionsPagerDutySNSTopic:
@@ -91,3 +97,16 @@ Resources:
 
               "For more details open the GuardDuty console at
               https://console.aws.amazon.com/guardduty/home?region=<region>#/findings?search=id%3D<Finding_ID>"
+
+  AuthAtEdgeLambdasBucket:
+    Type: AWS::S3::Bucket
+    Condition: IsUSEast1Region
+    Properties:
+      BucketName: !Sub '${ClientId}-crafter-auth-at-edge-lambdas'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled

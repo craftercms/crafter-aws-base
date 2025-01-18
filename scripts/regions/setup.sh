@@ -12,6 +12,7 @@ if [ -z "$resources_stack" ] || [ "$resources_stack" == "null" ]; then
         --region $REGION \
         --capabilities CAPABILITY_NAMED_IAM \
         --template-body file://$RESOURCES_STACK_CONFIG_FILE --parameters \
+        ParameterKey=ClientId,ParameterValue="$CLIENT_ID" \
         ParameterKey=PagerDutyIntegrationUrl,ParameterValue="$PAGER_DUTY_INTEGRATION_URL"
     echo "Waiting for regions resources stack to be created..."
 

@@ -3,15 +3,15 @@ kind: Kustomization
 namespace: craftercms
 images:
   - name: craftercms/authoring_tomcat
-    newTag: '4.2.0'
+    newTag: '4.2.2E'
   - name: craftercms/deployer
-    newTag: '4.2.0'
+    newTag: '4.2.2E'
   - name: craftercms/delivery_tomcat
-    newTag: '4.2.0'
+    newTag: '4.2.2E'
   - name: craftercms/git_https_server
-    newTag: '4.2.0'
+    newTag: '4.2.2E'
   - name: craftercms/logrotate
-    newTag: '4.2.0'
+    newTag: '4.2.2E'
 resources:
   - external-secrets/mail-user-credentials.yaml
   - external-secrets/config-encryption-key-salt.yaml

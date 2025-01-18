@@ -73,10 +73,10 @@ Parameters:
       - 7
   BlackoutWindowStartHour:
     Type: String
-    Default: 13
+    Default: 16
   BlackoutWindowEndHour:
     Type: String
-    Default: 14
+    Default: 17
 
 Conditions:
   UseBackupRegion:
@@ -87,19 +87,20 @@ Conditions:
     !Equals [!Ref CloudWatchAlarmsEnabled, true]
 
 Resources:
-  ClusterLogsBucket:
-    DeletionPolicy: Retain
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: {{cluster_logs_s3_bucket_name}}
-      OwnershipControls:
-        Rules:
-          - ObjectOwnership: BucketOwnerPreferred
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        IgnorePublicAcls: true
-        BlockPublicPolicy: true
-        RestrictPublicBuckets: true
+# S3 Log-forwarding config
+  # ClusterLogsBucket:
+  #   DeletionPolicy: Retain
+  #   Type: AWS::S3::Bucket
+  #   Properties:
+  #     BucketName: {{cluster_logs_s3_bucket_name}}
+  #     OwnershipControls:
+  #       Rules:
+  #         - ObjectOwnership: BucketOwnerPreferred
+  #     PublicAccessBlockConfiguration:
+  #       BlockPublicAcls: true
+  #       IgnorePublicAcls: true
+  #       BlockPublicPolicy: true
+  #       RestrictPublicBuckets: true
 
   AuthoringNodeGroupSecurityGroup:
       Type: AWS::EC2::SecurityGroup
