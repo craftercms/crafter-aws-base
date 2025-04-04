@@ -113,10 +113,10 @@ Parameters:
     Default: '{{default_static_assets_cloudfront_response_headers_policy_id}}'
   S3OriginCacheBehaviorAllowedMethods:
     Type: CommaDelimitedList
-    Default: 'HEAD,GET'
+    Default: 'HEAD,GET,OPTIONS'
   S3OriginCacheBehaviorCachedMethods:
     Type: CommaDelimitedList
-    Default: 'HEAD,GET'
+    Default: 'HEAD,GET,OPTIONS'
   CloudFrontPriceClass:
     Type: String
     Default: PriceClass_100
@@ -356,7 +356,7 @@ Resources:
           CloudFrontDefaultCertificate: !If [CloudFrontCertificateArnSpecified, !Ref 'AWS::NoValue', true]
           AcmCertificateArn: !If [CloudFrontCertificateArnSpecified, !Ref CloudFrontCertificateArn, !Ref 'AWS::NoValue']
           SslSupportMethod: !If [CloudFrontCertificateArnSpecified, 'sni-only', !Ref 'AWS::NoValue']
-          MinimumProtocolVersion: TLSv1.1_2016
+          MinimumProtocolVersion: TLSv1.2_2021
         Logging:
           !If
           - ShouldEnableCloudFrontLoggingBucket

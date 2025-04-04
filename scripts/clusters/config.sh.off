@@ -10,11 +10,11 @@ export ENVIRONMENT_VERSION=v1
 # Required
 export EKS_VERSION=1.32
 # Required
-export EKSCTL_VERSION=v0.201.0
+export EKSCTL_VERSION=v0.204.0
 # Required (use versions specified in https://docs.aws.amazon.com/eks/latest/userguide/install-kubectl.html)
 export KUBECTL_VERSION=v1.32.0
 # Required
-export K9S_VERSION=v0.32.7
+export K9S_VERSION=v0.40.5
 # Required (default 9am EDT)
 export UPGRADE_NODES_CRON_UTC='0 13 * * 0'
 # Leave always empty
@@ -90,6 +90,10 @@ export NAT_GATEWAY_MODE=Single
 export CLUSTER_PUBLIC_ACCESS_CIDRS=35.173.5.193/32,52.34.238.137/32
 # Required
 export OPEN_SEARCH_SINGLE_NODE_CLUSTER=false
+# Required. Please use m5.xlarge.search or larger if you expected OS requests to be >= 100MB
+export OPEN_SEARCH_INSTANCE_TYPE=m5.large.search
+# Required. If doing a single node cluster, it's recommended the size to be x3 the size of the volume in a 3 node cluster
+export OPEN_SEARCH_VOLUME_SIZE=20
 # Required (use a no more than 5 letters acronym if possible)
 export CLIENT_ID=
 # Required

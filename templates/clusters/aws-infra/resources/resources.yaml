@@ -12,14 +12,17 @@ Parameters:
     Type: String
   OpenSearchVersion:
     Type: String
-    AllowedValues: ['OpenSearch_2.15', 'OpenSearch_2.13', 'OpenSearch_2.11', 'OpenSearch_2.9','OpenSearch_2.7', 'OpenSearch_2.5', 'OpenSearch_2.3', 'OpenSearch_1.3']
-    Default: 'OpenSearch_2.15'
+    AllowedValues: ['OpenSearch_2.17', 'OpenSearch_2.15', 'OpenSearch_2.13', 'OpenSearch_2.11', 'OpenSearch_2.9','OpenSearch_2.7', 'OpenSearch_2.5', 'OpenSearch_2.3', 'OpenSearch_1.3']
+    Default: 'OpenSearch_2.17'
   OpenSearchSingleNodeCluster:
     Type: String
     Default: false
-    AllowedValues:
-      - true
-      - false
+  OpenSearchInstanceType:
+    Type: String
+    Default: 'm5.large.search'
+  OpenSearchVolumeSize:
+    Type: Number
+    Default: 20
   BackupRegion:
     Type: String
     Default: ''
@@ -952,11 +955,11 @@ Resources:
           - IsOpenSearchSingleNodeCluster
           - !Ref 'AWS::NoValue'
           - AvailabilityZoneCount: "3"
-        InstanceType: "m5.large.search"
+        InstanceType: !Ref OpenSearchInstanceType
         MultiAZWithStandbyEnabled: false
       EBSOptions:
         EBSEnabled: true
-        VolumeSize: 20
+        VolumeSize: !Ref OpenSearchVolumeSize
         Iops: 3000
         Throughput: 125
         VolumeType: "gp3"
