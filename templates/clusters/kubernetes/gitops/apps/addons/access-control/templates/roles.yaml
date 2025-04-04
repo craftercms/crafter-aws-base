@@ -1,0 +1,14 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: craftercms-support-role
+  namespace: craftercms
+rules:
+  # List pods and access logs
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+  # Open shell to a pod
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["get", "create"]

@@ -83,6 +83,10 @@ target:
           value : 10000
         - key: "index.mapping.depth.limit"
           value: 50
+        - key: "number_of_shards"
+          value: 1
+        - key: "number_of_replicas"
+          value: 1
 
   notifications:
     mail:

@@ -1,0 +1,576 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: AWS alarms for the {{cluster_name}} cluster
+
+Parameters:
+  CloudWatchAlarmsEnabled:
+    Type: String
+    Default: true
+  AlarmsEmailAddress:
+    Type: String
+    AllowedPattern: "^[\\x20-\\x45]?[\\w-\\+]+(\\.[\\w]+)*@[\\w-]+(\\.[\\w]+)*(\\.[a-z]{2,})$"
+    ConstraintDescription: Email address required.
+    Default: alarm@craftersoftware.com
+    Description: Enter an email address you want to subscribe to the Amazon SNS topic that will send alarms for Cloudfront issues.
+  CloudOpsEmailAddress:
+    Type: String
+    AllowedPattern: "^[\\x20-\\x45]?[\\w-\\+]+(\\.[\\w]+)*@[\\w-]+(\\.[\\w]+)*(\\.[a-z]{2,})$"
+    ConstraintDescription: Email address required.
+    Default: cloud-ops@craftersoftware.com
+    Description: Enter an email address you want to subscribe to the Amazon SNS topic that will send notifications for cluster issues.
+  AlarmsSlackChannelHookUrl:
+    Type: String
+  PagerDutyIntegrationUrl:
+    Type: String
+  BlackoutWindowDay:
+    Type: String
+    Default: 7
+    AllowedValues:
+      - 1
+      - 2
+      - 3
+      - 4
+      - 5
+      - 6
+      - 7
+  BlackoutWindowStartHour:
+    Type: String
+    Default: 16
+  BlackoutWindowEndHour:
+    Type: String
+    Default: 17
+  LoadBalancerAlarmsEnabled:
+    Type: String
+    Default: false
+
+Conditions:
+  CloudWatchAlarmsEnabled:
+    !Equals [!Ref CloudWatchAlarmsEnabled, true]
+  ShouldEnableS3OriginFailover:
+    !Equals [true, !Ref LoadBalancerAlarmsEnabled]
+
+Resources:
+  AlarmsPagerDutySNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: "{{cluster_name}}-AlarmsPagerDutySNSTopic"
+  
+  AlarmsPagerDutySubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      RawMessageDelivery: False
+      TopicArn: !GetAtt AlarmsPagerDutySNSTopic.TopicArn
+      Protocol: HTTPS
+      Endpoint: !Ref PagerDutyIntegrationUrl
+
+  # Required for SOC 2
+  AlarmsSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+      - Endpoint: 
+          Ref: AlarmsEmailAddress
+        Protocol: email
+
+  CloudOpsSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+      - Endpoint: 
+          Ref: CloudOpsEmailAddress
+        Protocol: email
+
+  SendCWAlarmsToSlackLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service: lambda.amazonaws.com
+      Policies:
+        - PolicyName: SendCWAlarmsToSlackLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+
+  SendCWAlarmsToSlackLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.9
+      Role: !GetAtt SendCWAlarmsToSlackLambdaRole.Arn
+      Handler: index.handler
+      Timeout: 30
+      Environment:
+        Variables:
+          slackUrl: !Ref AlarmsSlackChannelHookUrl        
+      Code:
+        ZipFile: |
+          import urllib3
+          import json
+          import os
+
+          slack_url = os.environ['slackUrl']
+          http = urllib3.PoolManager()
+
+          def get_alarm_attributes(sns_message):
+              alarm = dict()
+
+              alarm['name'] = sns_message['AlarmName']
+              alarm['description'] = sns_message['AlarmDescription']
+              alarm['reason'] = sns_message['NewStateReason']
+              alarm['{{aws_region}}'] = sns_message['Region']
+              alarm['instance_id'] = sns_message['Trigger']['Metrics'][1]['MetricStat']['Metric']['Dimensions'][0]['value']
+              alarm['state'] = sns_message['NewStateValue']
+              alarm['previous_state'] = sns_message['OldStateValue']
+
+              return alarm
+
+          def notify_insufficient_data(alarm):
+              return {
+                  "type": "home",
+                  "blocks": [
+                      {
+                          "type": "header",
+                          "text": {
+                              "type": "plain_text",
+                              "text": ":warning: INSUFFICIENT_DATA: " + alarm['name']
+                          }
+                      },
+                      {
+                          "type": "divider"
+                      },
+                      {
+                          "type": "section",
+                          "text": {
+                              "type": "mrkdwn",
+                              "text": "_" + alarm['description'] + "_"
+                          },
+                          "block_id": "text1"
+                      },
+                      {
+                          "type": "divider"
+                      },
+                      {
+                          "type": "context",
+                          "elements": [
+                              {
+                                  "type": "mrkdwn",
+                                  "text": "Region: *" + alarm['{{aws_region}}'] + "*"
+                              }
+                          ]
+                      }
+                  ]
+              }
+
+          def notify_alarm(alarm):
+              return {
+                  "type": "home",
+                  "blocks": [
+                      {
+                          "type": "header",
+                          "text": {
+                              "type": "plain_text",
+                              "text": ":red_circle: ALARM: " + alarm['name']
+                          }
+                      },
+                      {
+                          "type": "divider"
+                      },
+                      {
+                          "type": "section",
+                          "text": {
+                              "type": "mrkdwn",
+                              "text": "_" + alarm['reason'] + "_"
+                          },
+                          "block_id": "text1"
+                      },
+                      {
+                          "type": "divider"
+                      },
+                      {
+                          "type": "context",
+                          "elements": [
+                              {
+                                  "type": "mrkdwn",
+                                  "text": "Region: *" + alarm['{{aws_region}}'] + "*"
+                              }
+                          ]
+                      }
+                  ]
+              }
+
+          def notify_ok(alarm):
+              return {
+                  "type": "home",
+                  "blocks": [
+                      {
+                          "type": "header",
+                          "text": {
+                              "type": "plain_text",
+                              "text": ":large_green_circle: OK: " + alarm['name']
+                          }
+                      },
+                      {
+                          "type": "divider"
+                      },
+                      {
+                          "type": "section",
+                          "text": {
+                              "type": "mrkdwn",
+                              "text": "_" + alarm['reason'] + "_"
+                          },
+                          "block_id": "text1"
+                      },
+                      {
+                          "type": "divider"
+                      },
+                      {
+                          "type": "context",
+                          "elements": [
+                              {
+                                  "type": "mrkdwn",
+                                  "text": "Region: *" + alarm['{{aws_region}}'] + "*"
+                              }
+                          ]
+                      }
+                  ]
+              }
+
+          def handler(event, context):
+              sns_message = json.loads(event["Records"][0]["Sns"]["Message"])
+              alarm = get_alarm_attributes(sns_message)
+
+              msg = str()
+
+              if alarm['state'] == 'INSUFFICIENT_DATA':
+                  msg = notify_insufficient_data(alarm)
+              elif alarm['state'] == 'ALARM':
+                  msg = notify_alarm(alarm)
+              elif alarm['state'] == 'OK':
+                  msg = notify_ok(alarm)
+
+              encoded_msg = json.dumps(msg).encode("utf-8")
+              resp = http.request("POST", slack_url, body=encoded_msg)
+              print(
+                  {
+                      "message": msg,
+                      "status_code": resp.status,
+                      "response": resp.data,
+                  }
+              )
+
+  SlackSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+        - Protocol: lambda
+          Endpoint: !GetAtt SendCWAlarmsToSlackLambda.Arn
+
+  SendCWAlarmsToSlackLambdaFunctionInvokePermission:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !Ref SendCWAlarmsToSlackLambda
+      Principal: sns.amazonaws.com   
+
+  AuthoringPodsDownAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CloudWatchAlarmsEnabled
+    Properties:
+      AlarmName: {{client_id}}/{{cluster_name}}/authoring-pods-down
+      AlarmDescription: Authoring in {{client_id}}/{{cluster_name}} pod count < 1
+      Metrics:
+        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 1, m1)"
+          Id: service_number_of_running_pods
+          Period: '60'
+          ReturnData: True
+        - Id: m1
+          ReturnData: False
+          MetricStat:
+            Metric:
+              Dimensions:
+                - Name: Namespace
+                  Value: craftercms
+                - Name: Service
+                  Value: authoring-service
+                - Name: ClusterName
+                  Value: {{cluster_name}}
+              MetricName: service_number_of_running_pods
+              Namespace: ContainerInsights
+            Period: '60'
+            Stat: Average
+      EvaluationPeriods: '3'
+      DatapointsToAlarm: '2'
+      ComparisonOperator: LessThanThreshold
+      Threshold: '1'
+      TreatMissingData: "missing"
+      AlarmActions:
+        - !Ref SlackSNSTopic
+      OKActions: 
+        - !Ref SlackSNSTopic
+
+  AuthoringTomcatHighMemoryAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CloudWatchAlarmsEnabled
+    Properties:
+      AlarmName: {{client_id}}/{{cluster_name}}/authoring-tomcat-high-memory
+      AlarmDescription: Authoring tomcat in {{client_id}}/{{cluster_name}} memory usage is > 90%
+      Metrics:
+        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 1, m1)"
+          Id: container_memory_utilization_over_container_limit
+          Period: '300'
+          ReturnData: True
+        - Id: m1
+          ReturnData: False
+          MetricStat:
+            Metric:
+              Dimensions:
+                - Name: Namespace
+                  Value: craftercms
+                - Name: ClusterName
+                  Value: {{cluster_name}}
+                - Name: PodName
+                  Value: authoring-0
+                - Name: ContainerName
+                  Value: tomcat
+              MetricName: container_memory_utilization_over_container_limit
+              Namespace: ContainerInsights
+            Period: '300'
+            Stat: Average
+      EvaluationPeriods: '1'
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: '90'
+      TreatMissingData: "missing"
+      AlarmActions:
+        - !Ref SlackSNSTopic
+      OKActions:
+        - !Ref SlackSNSTopic
+
+  AuthoringDeployerHighMemoryAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CloudWatchAlarmsEnabled
+    Properties:
+      AlarmName: {{client_id}}/{{cluster_name}}/authoring-deployer-high-memory
+      AlarmDescription: Authoring deployer in {{client_id}}/{{cluster_name}} memory usage is > 90%
+      Metrics:
+        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 1, m1)"
+          Id: container_memory_utilization_over_container_limit
+          Period: '300'
+          ReturnData: True
+        - Id: m1
+          ReturnData: False
+          MetricStat:
+            Metric:
+              Dimensions:
+                - Name: Namespace
+                  Value: craftercms
+                - Name: ClusterName
+                  Value: {{cluster_name}}
+                - Name: PodName
+                  Value: authoring-0
+                - Name: ContainerName
+                  Value: deployer
+              MetricName: container_memory_utilization_over_container_limit
+              Namespace: ContainerInsights
+            Period: '300'
+            Stat: Average
+      EvaluationPeriods: '1'
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: '90'
+      TreatMissingData: "missing"
+      AlarmActions:
+        - !Ref SlackSNSTopic
+      OKActions:
+        - !Ref SlackSNSTopic
+
+  AuthoringTomcatHighCPUAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CloudWatchAlarmsEnabled
+    Properties:
+      AlarmName: {{client_id}}/{{cluster_name}}/authoring-tomcat-high-cpu
+      AlarmDescription: Authoring tomcat in {{client_id}}/{{cluster_name}} CPU usage is > 90%
+      Metrics:
+        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 1, m1)"
+          Id: container_cpu_utilization_over_container_limit
+          Period: '300'
+          ReturnData: True
+        - Id: m1
+          ReturnData: False
+          MetricStat:
+            Metric:
+              Dimensions:
+                - Name: Namespace
+                  Value: craftercms
+                - Name: ClusterName
+                  Value: {{cluster_name}}
+                - Name: PodName
+                  Value: authoring-0
+                - Name: ContainerName
+                  Value: tomcat
+              MetricName: container_cpu_utilization_over_container_limit
+              Namespace: ContainerInsights
+            Period: '300'
+            Stat: Average
+      EvaluationPeriods: '1'
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: '90'
+      TreatMissingData: "missing"
+      AlarmActions:
+        - !Ref SlackSNSTopic
+      OKActions:
+        - !Ref SlackSNSTopic
+
+  AuthoringDeployerHighCPUAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CloudWatchAlarmsEnabled
+    Properties:
+      AlarmName: {{client_id}}/{{cluster_name}}/authoring-deployer-high-cpu
+      AlarmDescription: Authoring deployer in {{client_id}}/{{cluster_name}} CPU usage is > 90%
+      Metrics:
+        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 1, m1)"
+          Id: container_cpu_utilization_over_container_limit
+          Period: '300'
+          ReturnData: True
+        - Id: m1
+          ReturnData: False
+          MetricStat:
+            Metric:
+              Dimensions:
+                - Name: Namespace
+                  Value: craftercms
+                - Name: ClusterName
+                  Value: {{cluster_name}}
+                - Name: PodName
+                  Value: authoring-0
+                - Name: ContainerName
+                  Value: deployer
+              MetricName: container_cpu_utilization_over_container_limit
+              Namespace: ContainerInsights
+            Period: '300'
+            Stat: Average
+      EvaluationPeriods: '1'
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: '90'
+      TreatMissingData: "missing"
+      AlarmActions:
+        - !Ref SlackSNSTopic
+      OKActions:
+        - !Ref SlackSNSTopic
+
+  AuthoringDataVolumeCapacityAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CloudWatchAlarmsEnabled
+    Properties:
+      AlarmName: {{client_id}}/{{cluster_name}}/authoring-data-volume-capacity
+      AlarmDescription: Data Volume capacity in Authoring {{client_id}}/{{cluster_name}} pod is less than 20 GB
+      Metrics:
+        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 200000000000, m1)"
+          Id: kubelet_volume_stats_available_bytes
+          Period: '300'
+          ReturnData: True
+        - Id: m1
+          ReturnData: False
+          MetricStat:
+            Metric:
+              Dimensions:
+                - Name: NodeGroup
+                  Value: authoring-workers-az1-v1
+                - Name: persistentvolumeclaim
+                  Value: data-authoring-0
+                - Name: ClusterName
+                  Value: {{cluster_name}}
+              MetricName: kubelet_volume_stats_available_bytes
+              Namespace: ContainerInsights/Prometheus
+            Period: '300'
+            Stat: Average
+      EvaluationPeriods: '1'
+      ComparisonOperator: LessThanThreshold
+      Threshold: '20000000000'
+      TreatMissingData: "missing"
+      AlarmActions:
+        - !Ref CloudOpsSNSTopic
+        - !Ref SlackSNSTopic
+      OKActions: 
+        - !Ref CloudOpsSNSTopic
+        - !Ref SlackSNSTopic
+
+  AuthoringLogsVolumeUsageAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CloudWatchAlarmsEnabled
+    Properties:
+      AlarmName: {{client_id}}/{{cluster_name}}/authoring-logs-volume-usage
+      AlarmDescription: Logs volume usage in Authoring {{client_id}}/{{cluster_name}} pod is more than 16 GB
+      Metrics:
+        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 500000000, m1)"
+          Id: kubelet_volume_stats_used_bytes
+          Period: '300'
+          ReturnData: True
+        - Id: m1
+          ReturnData: False
+          MetricStat:
+            Metric:
+              Dimensions:
+                - Name: NodeGroup
+                  Value: authoring-workers-az1-v1
+                - Name: persistentvolumeclaim
+                  Value: logs-authoring-0
+                - Name: ClusterName
+                  Value: {{cluster_name}}
+              MetricName: kubelet_volume_stats_used_bytes
+              Namespace: ContainerInsights/Prometheus
+            Period: '300'
+            Stat: Average
+      EvaluationPeriods: '1'
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: '16000000000'
+      TreatMissingData: "missing"
+      AlarmActions:
+        - !Ref CloudOpsSNSTopic
+        - !Ref SlackSNSTopic
+      OKActions: 
+        - !Ref CloudOpsSNSTopic
+        - !Ref SlackSNSTopic
+
+  AuthoringDataVolumeFreeInodesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CloudWatchAlarmsEnabled
+    Properties:
+      AlarmName: {{client_id}}/{{cluster_name}}/authoring-data-volume-free-inodes
+      AlarmDescription: Free inodes in Authoring {{client_id}}/{{cluster_name}} pod are < 100000
+      Metrics:
+        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 1000000, m1)"
+          Id: kubelet_volume_stats_available_bytes
+          Period: '300'
+          ReturnData: True
+        - Id: m1
+          ReturnData: False
+          MetricStat:
+            Metric:
+              Dimensions:
+                - Name: NodeGroup
+                  Value: authoring-workers-az1-v1
+                - Name: persistentvolumeclaim
+                  Value: data-authoring-0
+                - Name: ClusterName
+                  Value: {{cluster_name}}
+              MetricName: kubelet_volume_stats_available_bytes
+              Namespace: ContainerInsights/Prometheus
+            Period: '300'
+            Stat: Average
+      EvaluationPeriods: '1'
+      ComparisonOperator: LessThanThreshold
+      Threshold: '100000'
+      TreatMissingData: "missing"
+      AlarmActions:
+        - !Ref CloudOpsSNSTopic
+        - !Ref SlackSNSTopic
+      OKActions: 
+        - !Ref CloudOpsSNSTopic
+        - !Ref SlackSNSTopic

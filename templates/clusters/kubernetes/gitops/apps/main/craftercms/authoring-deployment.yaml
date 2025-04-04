@@ -165,15 +165,15 @@ spec:
             name: authoring-deployer-config
         - name: temp
           emptyDir: {}
-      initContainers:
-        # When there's a major MariaDB version upgrade between Studio upgrades, please run this
-        # - name: mariadb-upgrader
-        #   image: craftercms/authoring_tomcat:latest
-        #   volumeMounts:
-        #     - name: data
-        #       mountPath: /opt/crafter/data
-        #   command: ["./docker-entrypoint.sh"]
-        #   args: ["su", "crafter", "-c", "/opt/crafter/bin/crafter.sh upgradedb"]
+      # initContainers:
+      #   # When there's a major MariaDB version upgrade between Studio upgrades, please run this
+      #   - name: mariadb-upgrader
+      #     image: craftercms/authoring_tomcat:latest
+      #     volumeMounts:
+      #       - name: data
+      #         mountPath: /opt/crafter/data
+      #     command: ["./docker-entrypoint.sh"]
+      #     args: ["su", "crafter", "-c", "/opt/crafter/bin/crafter.sh upgradedb"]
       containers:
         # Comment on multi-region (supplementary region)
         # Tomcat container
