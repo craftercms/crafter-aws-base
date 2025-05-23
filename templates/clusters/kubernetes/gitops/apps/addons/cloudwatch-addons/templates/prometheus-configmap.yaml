@@ -34,7 +34,6 @@ data:
         ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
         insecure_skip_verify: true
 
-
 kind: ConfigMap
 metadata:
   name: prometheus-config

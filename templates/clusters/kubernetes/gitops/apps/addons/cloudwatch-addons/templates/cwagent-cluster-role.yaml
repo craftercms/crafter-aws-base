@@ -27,3 +27,6 @@ rules:
     verbs: ["get","update"]
   - nonResourceURLs: ["/metrics"]
     verbs: ["get", "list", "watch"]
+  - apiGroups: [ "discovery.k8s.io" ]
+    resources: [ "endpointslices" ]
+    verbs: [ "list", "watch", "get" ]
