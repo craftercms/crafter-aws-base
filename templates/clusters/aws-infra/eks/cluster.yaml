@@ -62,6 +62,11 @@ iam:
             Resource:
               - "arn:aws:eks:{{aws_region}}:{{aws_account_id}}:cluster/{{cluster_name}}"
               - "arn:aws:eks:{{aws_region}}:{{aws_account_id}}:nodegroup/{{cluster_name}}/*/*"
+          - Effect: Allow
+            Action:
+              - eks:DescribeClusterVersions
+            Resource:
+              - "arn:aws:eks:{{aws_region}}:{{aws_account_id}}:*"
     - metadata:
         name: cloudwatch-addons
         namespace: amazon-cloudwatch

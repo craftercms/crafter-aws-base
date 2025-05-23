@@ -45,8 +45,6 @@ Parameters:
 Conditions:
   CloudWatchAlarmsEnabled:
     !Equals [!Ref CloudWatchAlarmsEnabled, true]
-  ShouldEnableS3OriginFailover:
-    !Equals [true, !Ref LoadBalancerAlarmsEnabled]
 
 Resources:
   AlarmsPagerDutySNSTopic:
@@ -573,4 +571,199 @@ Resources:
         - !Ref SlackSNSTopic
       OKActions: 
         - !Ref CloudOpsSNSTopic
+        - !Ref SlackSNSTopic
+
+  OSIndexingLatencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CloudWatchAlarmsEnabled
+    Properties:
+      AlarmName: {{client_id}}/{{cluster_name}}/os-indexing-latency-alarm
+      AlarmDescription: OS cluster indexing latency in {{client_id}}/{{cluster_name}}  > 80 millisec
+      Metrics:
+        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 2, m1)"
+          Id: indexing_latency
+          Period: '60'
+          ReturnData: True
+        - Id: m1
+          ReturnData: False
+          MetricStat:
+            Metric:
+              Dimensions:
+                - Name: DomainName
+                  Value: {{cluster_name}}-opensearch
+                - Name: ClientId
+                  Value: !Sub '${AWS::AccountId}'
+              MetricName: IndexingLatency
+              Namespace: AWS/ES
+            Period: '60'
+            Stat: Average
+      EvaluationPeriods: '1'
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: '80'
+      TreatMissingData: "breaching"
+      AlarmActions:
+        - !Ref SlackSNSTopic
+      OKActions: 
+        - !Ref SlackSNSTopic
+
+  OSSearchLatencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CloudWatchAlarmsEnabled
+    Properties:
+      AlarmName: {{client_id}}/{{cluster_name}}/os-search-latency-alarm
+      AlarmDescription: OS cluster search latency in {{client_id}}/{{cluster_name}}  > 50 millisec
+      Metrics:
+        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 20, m1)"
+          Id: search_latency
+          Period: '60'
+          ReturnData: True
+        - Id: m1
+          ReturnData: False
+          MetricStat:
+            Metric:
+              Dimensions:
+                - Name: DomainName
+                  Value: {{cluster_name}}-opensearch
+                - Name: ClientId
+                  Value: !Sub '${AWS::AccountId}'
+              MetricName: SearchLatency
+              Namespace: AWS/ES
+            Period: '60'
+            Stat: Average
+      EvaluationPeriods: '1'
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: '50'
+      TreatMissingData: "breaching"
+      AlarmActions:
+        - !Ref SlackSNSTopic
+      OKActions: 
+        - !Ref SlackSNSTopic
+
+  OSFreeStorageSpaceAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CloudWatchAlarmsEnabled
+    Properties:
+      AlarmName: {{client_id}}/{{cluster_name}}/os-free-storage-space-alarm
+      AlarmDescription: free storage space in {{client_id}}/{{cluster_name}}  < 5000
+      Metrics:
+        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 5000, m1)"
+          Id: os_free_storage_space_alarm
+          Period: '60'
+          ReturnData: True
+        - Id: m1
+          ReturnData: False
+          MetricStat:
+            Metric:
+              Dimensions:
+                - Name: DomainName
+                  Value: {{cluster_name}}-opensearch
+                - Name: ClientId
+                  Value: !Sub '${AWS::AccountId}'
+              MetricName: FreeStorageSpace
+              Namespace: AWS/ES
+            Period: '60'
+            Stat: Minimum
+      EvaluationPeriods: '1'
+      ComparisonOperator: LessThanThreshold
+      Threshold: '5000'
+      TreatMissingData: "breaching"
+      AlarmActions:
+        - !Ref SlackSNSTopic
+      OKActions: 
+        - !Ref SlackSNSTopic
+
+  OSCPUUtilizationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CloudWatchAlarmsEnabled
+    Properties:
+      AlarmName: {{client_id}}/{{cluster_name}}/os-cpu-utilization-alarm
+      AlarmDescription: os cpu utilization in {{client_id}}/{{cluster_name}}  > 70
+      Metrics:
+        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 10, m1)"
+          Id: os_cpu_utilization_alarm
+          Period: '60'
+          ReturnData: True
+        - Id: m1
+          ReturnData: False
+          MetricStat:
+            Metric:
+              Dimensions:
+                - Name: DomainName
+                  Value: {{cluster_name}}-opensearch
+                - Name: ClientId
+                  Value: !Sub '${AWS::AccountId}'
+              MetricName: CPUUtilization
+              Namespace: AWS/ES
+            Period: '60'
+            Stat: Minimum
+      EvaluationPeriods: '1'
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: '70'
+      TreatMissingData: "breaching"
+      AlarmActions:
+        - !Ref SlackSNSTopic
+      OKActions: 
+        - !Ref SlackSNSTopic
+
+  OSHttpErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CloudWatchAlarmsEnabled
+    Properties:
+      AlarmName: {{client_id}}/{{cluster_name}}/os-http-errors-alarm
+      AlarmDescription: OS cluster http errors in {{client_id}}/{{cluster_name}}  > 1000
+      Metrics:
+        - Expression: !Sub "IF((DAY(xx4) == ${BlackoutWindowDay} AND (HOUR(xx4) >= ${BlackoutWindowStartHour} AND HOUR(xx4) <= ${BlackoutWindowEndHour})), 100, m1)"
+          Id: os_http_errors
+          Period: '300'
+          ReturnData: True
+        - Expression: SUM([xx3, xx4, xx5])
+          Id: m1
+          Period: '300'
+          ReturnData: False
+        - Id: xx5
+          ReturnData: False
+          MetricStat:
+            Metric:
+              Dimensions:
+                - Name: DomainName
+                  Value: {{cluster_name}}-opensearch
+                - Name: ClientId
+                  Value: !Sub '${AWS::AccountId}'
+              MetricName: 5xx
+              Namespace: AWS/ES
+            Period: '300'
+            Stat: Sum
+        - Id: xx3
+          ReturnData: False
+          MetricStat:
+            Metric:
+              Dimensions:
+                - Name: DomainName
+                  Value: {{cluster_name}}-opensearch
+                - Name: ClientId
+                  Value: !Sub '${AWS::AccountId}'
+              MetricName: 3xx
+              Namespace: AWS/ES
+            Period: '300'
+            Stat: Sum
+        - Id: xx4
+          ReturnData: False
+          MetricStat:
+            Metric:
+              Dimensions:
+                - Name: DomainName
+                  Value: {{cluster_name}}-opensearch
+                - Name: ClientId
+                  Value: !Sub '${AWS::AccountId}'
+              MetricName: 4xx
+              Namespace: AWS/ES
+            Period: '300'
+            Stat: Sum
+      EvaluationPeriods: '1'
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: '1000'
+      TreatMissingData: "breaching"
+      AlarmActions:
+        - !Ref SlackSNSTopic
+      OKActions: 
         - !Ref SlackSNSTopic

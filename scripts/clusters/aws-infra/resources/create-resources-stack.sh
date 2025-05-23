@@ -35,12 +35,9 @@ if [ -z "$resources_stack" ] || [ "$resources_stack" == "null" ]; then
         ParameterKey=BackupRegion,ParameterValue=$AWS_BACKUP_REGION \
         ParameterKey=BackupRegionBucketNamePrefix,ParameterValue=$S3_BACKUP_REGION_BUCKET_NAME_PREFIX \
         ParameterKey=DeliveryInstanceCount,ParameterValue=$DELIVERY_INSTANCE_COUNT \
-        ParameterKey=CloudWatchAlarmsEnabled,ParameterValue=$ENABLE_CLOUDWATCH_ALARMS \
-        ParameterKey=AlarmsEmailAddress,ParameterValue=$ALARMS_EMAIL_ADDRESS \
-        ParameterKey=AlarmsSlackChannelHookUrl,ParameterValue=$ALARMS_SLACK_CHANNEL_HOOK_URL \
         ParameterKey=OpenSearchSingleNodeCluster,ParameterValue=$OPEN_SEARCH_SINGLE_NODE_CLUSTER \
-		ParameterKey=OpenSearchInstanceType,ParameterValue=$OPEN_SEARCH_INSTANCE_TYPE \
-		ParameterKey=OpenSearchVolumeSize,ParameterValue=$OPEN_SEARCH_VOLUME_SIZE
+        ParameterKey=OpenSearchInstanceType,ParameterValue=$OPEN_SEARCH_INSTANCE_TYPE \
+        ParameterKey=OpenSearchVolumeSize,ParameterValue=$OPEN_SEARCH_VOLUME_SIZE
 
     cecho "Waiting for resources stack to be created..." "info"
 
@@ -77,23 +74,16 @@ else
     cecho "Resources stack $HEALTHCHECKS_STACK_NAME already exists" "info"
 fi
 
-alarms_stack=$(aws cloudformation describe-stacks --region 'us-east-1' --stack-name $ALARMS_STACK_NAME | jq '.Stacks[0]')
+alarms_stack=$(aws cloudformation describe-stacks --stack-name $ALARMS_STACK_NAME | jq '.Stacks[0]')
 if [ -z "$alarms_stack" ] || [ "$alarms_stack" == "null" ]; then
-    if [ "$AWS_DEFAULT_REGION" == "us-east-1" ]; then
-        aws cloudformation create-stack --stack-name $ALARMS_STACK_NAME --capabilities CAPABILITY_NAMED_IAM \
-            --template-body file://$ALARMS_STACK_CONFIG_FILE --parameters \
-            ParameterKey=CloudWatchAlarmsEnabled,ParameterValue=$ENABLE_CLOUDWATCH_ALARMS \
-            ParameterKey=AlarmsEmailAddress,ParameterValue=$ALARMS_EMAIL_ADDRESS \
-            ParameterKey=PagerDutyIntegrationUrl,ParameterValue=$PAGER_DUTY_INTEGRATION_URL
-    else
-        aws cloudformation create-stack --region 'us-east-1' --stack-name $ALARMS_STACK_NAME \
-            --capabilities CAPABILITY_NAMED_IAM --template-body file://$ALARMS_STACK_CONFIG_FILE --parameters \
-            ParameterKey=CloudWatchAlarmsEnabled,ParameterValue=$ENABLE_CLOUDWATCH_ALARMS \
-            ParameterKey=AlarmsEmailAddress,ParameterValue=$ALARMS_EMAIL_ADDRESS \
-            ParameterKey=PagerDutyIntegrationUrl,ParameterValue=$PAGER_DUTY_INTEGRATION_URL
-    fi
+    aws cloudformation create-stack --stack-name $ALARMS_STACK_NAME --capabilities CAPABILITY_NAMED_IAM \
+        --template-body file://$ALARMS_STACK_CONFIG_FILE --parameters \
+        ParameterKey=CloudWatchAlarmsEnabled,ParameterValue=$ENABLE_CLOUDWATCH_ALARMS \
+        ParameterKey=AlarmsEmailAddress,ParameterValue=$ALARMS_EMAIL_ADDRESS \
+        ParameterKey=AlarmsSlackChannelHookUrl,ParameterValue=$ALARMS_SLACK_CHANNEL_HOOK_URL \
+        ParameterKey=PagerDutyIntegrationUrl,ParameterValue=$PAGER_DUTY_INTEGRATION_URL
 
     cecho "Waiting for alarms stack to be created..." "info"
 else
-    cecho "Alarms stack $ALARMS_STACK_NAME already exists" "info"
+    cecho "Resources stack $ALARMS_STACK_NAME already exists" "info"
 fi

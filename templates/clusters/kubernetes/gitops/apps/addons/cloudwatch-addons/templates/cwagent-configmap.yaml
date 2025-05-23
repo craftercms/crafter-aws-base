@@ -13,7 +13,8 @@ data:
           "kubernetes": {
             "cluster_name": "{{ .Values.clusterName }}",
             "metrics_collection_interval": 60,
-            "enhanced_container_insights": true
+            "enhanced_container_insights": true,
+            "accelerated_compute_metrics": false
           }
         },
         "force_flush_interval": 5
