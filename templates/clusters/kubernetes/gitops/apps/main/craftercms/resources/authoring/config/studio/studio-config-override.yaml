@@ -279,7 +279,7 @@ studio.mail.smtp.starttls.enable: ${env:MAIL_SMTP_STARTTLS}
 # -------------------------------------------------------------------------------------
 # IMPORTANT: To enable clustering, please specify the following Spring profile
 # in your crafter-setenv.sh:
-#  - SPRING_PROFILES_ACTIVE=crafter.studio.dbClusterPrimaryReplica
+#  - SPRING_PROFILES_ACTIVE=crafter_studio_dbClusterPrimaryReplica
 #    You will need to uncomment the Hazelcast and Studio DB Cluster property sections too
 # -------------------------------------------------------------------------------------
 
