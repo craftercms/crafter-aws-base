@@ -20,7 +20,7 @@ spec:
           value: crafterworkload
       containers:
         - name: cloudwatch-agent
-          image: public.ecr.aws/cloudwatch-agent/cloudwatch-agent:1.300056.0b1123
+          image: public.ecr.aws/cloudwatch-agent/cloudwatch-agent:1.300059.0b1207
           #ports:
           #  - containerPort: 8125
           #    hostPort: 8125
