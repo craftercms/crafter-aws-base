@@ -580,7 +580,7 @@ Resources:
       AlarmName: {{client_id}}/{{cluster_name}}/os-indexing-latency-alarm
       AlarmDescription: OS cluster indexing latency in {{client_id}}/{{cluster_name}}  > 80 millisec
       Metrics:
-        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 2, m1)"
+        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 1, m1)"
           Id: indexing_latency
           Period: '60'
           ReturnData: True
@@ -613,7 +613,7 @@ Resources:
       AlarmName: {{client_id}}/{{cluster_name}}/os-search-latency-alarm
       AlarmDescription: OS cluster search latency in {{client_id}}/{{cluster_name}}  > 50 millisec
       Metrics:
-        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 20, m1)"
+        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 1, m1)"
           Id: search_latency
           Period: '60'
           ReturnData: True
@@ -679,7 +679,7 @@ Resources:
       AlarmName: {{client_id}}/{{cluster_name}}/os-cpu-utilization-alarm
       AlarmDescription: os cpu utilization in {{client_id}}/{{cluster_name}}  > 70
       Metrics:
-        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 10, m1)"
+        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 1, m1)"
           Id: os_cpu_utilization_alarm
           Period: '60'
           ReturnData: True
@@ -695,7 +695,7 @@ Resources:
               MetricName: CPUUtilization
               Namespace: AWS/ES
             Period: '60'
-            Stat: Minimum
+            Stat: Maximum
       EvaluationPeriods: '1'
       ComparisonOperator: GreaterThanThreshold
       Threshold: '70'
@@ -762,6 +762,39 @@ Resources:
       EvaluationPeriods: '1'
       ComparisonOperator: GreaterThanThreshold
       Threshold: '1000'
+      TreatMissingData: "breaching"
+      AlarmActions:
+        - !Ref SlackSNSTopic
+      OKActions: 
+        - !Ref SlackSNSTopic
+
+  OSJVMMemoryPressureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CloudWatchAlarmsEnabled
+    Properties:
+      AlarmName: {{client_id}}/{{cluster_name}}/os-jvm-memory-pressure-alarm
+      AlarmDescription: os jvm memory pressure in {{client_id}}/{{cluster_name}} > 95
+      Metrics:
+        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 1, m1)"
+          Id: os_jvm_memory_pressure_alarm
+          Period: '60'
+          ReturnData: True
+        - Id: m1
+          ReturnData: False
+          MetricStat:
+            Metric:
+              Dimensions:
+                - Name: DomainName
+                  Value: {{cluster_name}}-opensearch
+                - Name: ClientId
+                  Value: !Sub '${AWS::AccountId}'
+              MetricName: JVMMemoryPressure
+              Namespace: AWS/ES
+            Period: '60'
+            Stat: Maximum
+      EvaluationPeriods: '1'
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: '95'
       TreatMissingData: "breaching"
       AlarmActions:
         - !Ref SlackSNSTopic

@@ -191,7 +191,7 @@ Resources:
           Value: {{environment}}
         - Key: craftercms:prod
           Value: {{prod_env}}
-      Runtime: python3.9
+      Runtime: python3.13
       Role: !GetAtt SendCWAlarmsToSlackLambdaRole.Arn
       Handler: index.handler
       Timeout: 30

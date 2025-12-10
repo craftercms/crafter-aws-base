@@ -21,7 +21,8 @@ kind: CronJob
 metadata:
   name: upgrade-$name
 spec:
-  schedule: "$UPGRADE_NODES_CRON_UTC"
+  schedule: "$UPGRADE_NODES_CRON"
+  timeZone: "$UPGRADE_NODES_CRON_TZ"
   concurrencyPolicy: Forbid
   startingDeadlineSeconds: 300
   failedJobsHistoryLimit: 1

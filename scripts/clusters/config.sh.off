@@ -8,15 +8,17 @@ export ENVIRONMENT=default
 # Required
 export ENVIRONMENT_VERSION=v1
 # Required
-export EKS_VERSION=1.33
+export EKS_VERSION=1.34
 # Required
-export EKSCTL_VERSION=v0.210.0
+export EKSCTL_VERSION=v0.220.0
 # Required (use versions specified in https://docs.aws.amazon.com/eks/latest/userguide/install-kubectl.html)
-export KUBECTL_VERSION=v1.33.0
+export KUBECTL_VERSION=1.34.2
 # Required
-export K9S_VERSION=v0.50.6
-# Required (default 9am EDT)
-export UPGRADE_NODES_CRON_UTC='0 13 * * 0'
+export K9S_VERSION=v0.50.16
+# Required (default 11am ET)
+export UPGRADE_NODES_CRON='0 11 * * 0'
+# Required
+export UPGRADE_NODES_CRON_TZ='America/New_York'
 # Leave always empty
 export AWS_PAGER=
 # Required
