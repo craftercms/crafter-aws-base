@@ -181,6 +181,14 @@ Resources:
       ServiceToken: !Ref S3BackupBucketLambdaArn
       BackupBucketName: !Ref S3BackupSiteBucketName
       BackupBucketRegion: !Ref BackupRegion
+      EnableVersioning: true
+      Tags:
+        - Key: craftercms:environment
+          Value: {{environment}}
+        - Key: craftercms:prod
+          Value: {{prod_env}}
+        #- Key: craftercms:skip-audit
+        #  Value: "This is an S3 replication destination bucket. It must be ignored for the S3 replication test to pass."      
 
   S3SiteBucket:
     Type: 'AWS::S3::Bucket'
@@ -241,6 +249,14 @@ Resources:
       ServiceToken: !Ref S3BackupBucketLambdaArn
       BackupBucketName: !Ref S3BackupBlobsBucketName
       BackupBucketRegion: !Ref BackupRegion
+      EnableVersioning: true
+      Tags:
+        - Key: craftercms:environment
+          Value: {{environment}}
+        - Key: craftercms:prod
+          Value: {{prod_env}}
+        #- Key: craftercms:skip-audit
+        #  Value: "This is an S3 replication destination bucket. It must be ignored for the S3 replication test to pass."      
 
   S3BlobsBucket:
     Type: 'AWS::S3::Bucket'

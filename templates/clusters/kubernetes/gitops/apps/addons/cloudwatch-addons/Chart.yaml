@@ -4,4 +4,4 @@ description: >
     https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/Container-Insights-setup-logs-FluentBit.html and
     https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/ContainerInsights-Prometheus-Setup.html)
 name: cloudwatch-addons
-version: 1.13
+version: 1.14

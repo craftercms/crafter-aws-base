@@ -1,7 +1,7 @@
 description: EBS CSI Driver and Storage Classes
 name: storage-addons
-version: 1.18
+version: 1.19
 dependencies:
   - name: aws-ebs-csi-driver
-    version: 2.53.0
+    version: 2.55.0
     repository: https://kubernetes-sigs.github.io/aws-ebs-csi-driver
