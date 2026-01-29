@@ -22,7 +22,7 @@ metadata:
       {"type":"forward","forwardConfig":{"targetGroups":[{"serviceName":"delivery-service","servicePort":"8080"}]}}
     alb.ingress.kubernetes.io/actions.block-request: >
       {"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"403","messageBody":"403 External access to endpoint not allowed"}}
-    alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS13-1-2-2021-06
+    alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS13-1-2-Res-2021-06
     alb.ingress.kubernetes.io/tags: craftercms:environment={{environment}},craftercms:prod={{prod_env}}
     alb.ingress.kubernetes.io/security-groups: "{{delivery_frontend_sg}},{{delivery_backend_sg}}"
     alb.ingress.kubernetes.io/manage-backend-security-group-rules: "false"

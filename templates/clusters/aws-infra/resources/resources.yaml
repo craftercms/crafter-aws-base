@@ -390,6 +390,7 @@ Resources:
                   - s3:CreateBucket
                   - s3:PutBucketPublicAccessBlock
                   - s3:PutBucketVersioning
+                  - s3:PutBucketTagging
                 Resource: !Sub "arn:aws:s3:::${BackupRegionBucketNamePrefix}-*"
 
   S3BackupBucketLambda:
@@ -419,25 +420,44 @@ Resources:
           class BackupBucketSetupException(Exception):
               pass
 
+          def normalize_tags(raw_tags):
+              """
+              Accepts either:
+                - CloudFormation-style list of {Key, Value}
+                - dict of key -> value
+              Returns a dict
+              """
+              if not raw_tags:
+                  return {}
+
+              if isinstance(raw_tags, list):
+                  return {t['Key']: t['Value'] for t in raw_tags}
+
+              if isinstance(raw_tags, dict):
+                  return raw_tags
+
+              raise ValueError("Unsupported Tags format")
+
           def handler(event, context):
-              bucket_name = event['ResourceProperties']['BackupBucketName']
-              bucket_region = event['ResourceProperties']['BackupBucketRegion']
+              props = event['ResourceProperties']
+              bucket_name = props['BackupBucketName']
+              bucket_region = props['BackupBucketRegion']
+              enable_versioning = str(props.get('EnableVersioning', 'false')).lower() == 'true'
+              tags = normalize_tags(props.get('Tags'))
 
               try:
-                  if event['RequestType'] == 'Create' or event['RequestType'] == 'Update':
+                  if event['RequestType'] in ('Create', 'Update'):
                       client = boto3.client('s3', region_name=bucket_region)
 
+                      # Create bucket if it doesn't exist
                       try:
                           if bucket_region == 'us-east-1':
                               client.create_bucket(Bucket=bucket_name)
                           else:
                               client.create_bucket(
                                   Bucket=bucket_name,
-                                  CreateBucketConfiguration={
-                                      'LocationConstraint': bucket_region
-                                  }
-                              )                          
-
+                                  CreateBucketConfiguration={'LocationConstraint': bucket_region}
+                              )
                           logger.info("Created bucket '%s'", bucket_name)
                       except ClientError as error:
                           if error.response['Error']['Code'] == 'BucketAlreadyOwnedByYou':
@@ -445,6 +465,7 @@ Resources:
                           else:
                               raise
 
+                      # Block all public access
                       client.put_public_access_block(
                           Bucket=bucket_name,
                           PublicAccessBlockConfiguration={
@@ -454,32 +475,41 @@ Resources:
                               'RestrictPublicBuckets': True
                           }
                       )
-
                       logger.info("Blocked all public access to bucket '%s'", bucket_name)
 
-                      client.put_bucket_versioning(
-                          Bucket=bucket_name,
-                          VersioningConfiguration={
-                              'Status': 'Enabled'
-                          }
-                      )
+                      # Enable versioning if requested
+                      if enable_versioning:
+                          client.put_bucket_versioning(
+                              Bucket=bucket_name,
+                              VersioningConfiguration={'Status': 'Enabled'}
+                          )
+                          logger.info("Enabled versioning on bucket '%s'", bucket_name)
+                      else:
+                          logger.info("Versioning not enabled on bucket '%s'", bucket_name)
 
-                      logger.info("Enabled versioning on bucket '%s'", bucket_name)
+                      # Apply tags if provided
+                      if tags:
+                          tag_set = [{'Key': k, 'Value': v} for k, v in tags.items()]
+                          client.put_bucket_tagging(
+                              Bucket=bucket_name,
+                              Tagging={'TagSet': tag_set}
+                          )
+                          logger.info("Applied tags to bucket '%s': %s", bucket_name, tags)
+
                       logger.info("Setup of backup bucket '%s' complete", bucket_name)
 
                       response_data = {
                           'Name': bucket_name,
                           'Arn': f"arn:aws:s3:::{bucket_name}"
                       }
-
                       cfnresponse.send(event, context, cfnresponse.SUCCESS, response_data, bucket_name)
+
                   elif event['RequestType'] == 'Delete':
                       logger.info("Please delete the '%s' backup bucket", bucket_name)
-
                       cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, bucket_name)
+
               except Exception as error:
                   logger.exception("Error when setting up backup bucket '%s'", bucket_name)
-
                   cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(error)})
 
 Outputs:
