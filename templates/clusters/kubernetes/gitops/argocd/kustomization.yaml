@@ -4,5 +4,5 @@ namespace: argocd
 resources:
   - namespace.yaml
   - install.yaml
-patchesStrategicMerge:
-  - patches.yaml
+patches:
+  - path: patches.yaml

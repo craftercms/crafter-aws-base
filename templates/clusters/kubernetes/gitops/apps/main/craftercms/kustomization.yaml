@@ -24,9 +24,6 @@ resources:
   - authoring-deployment.yaml
   - delivery-deployment.yaml
 configMapGenerator:
-  - name: gitconfig
-    files:
-      - resources/common/config/.gitconfig
   - name: authoring-tomcat-config
     files:
       - resources/authoring/config/tomcat/server.xml

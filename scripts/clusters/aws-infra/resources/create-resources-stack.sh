@@ -14,9 +14,11 @@ function gen_random_pswd() {
 ALARMS_STACK_NAME="${CLUSTER_NAME}-alarms"
 RESOURCES_STACK_NAME="${CLUSTER_NAME}-resources"
 HEALTHCHECKS_STACK_NAME="${CLUSTER_NAME}-${AWS_DEFAULT_REGION}-healthchecks"
+UPGRADE_REPORTS_STACK_NAME="${CLUSTER_NAME}-upgrade-reports"
 ALARMS_STACK_CONFIG_FILE="$CLUSTER_HOME/aws-infra/resources/alarms.yaml"
 RESOURCES_STACK_CONFIG_FILE="$CLUSTER_HOME/aws-infra/resources/resources.yaml"
 HEALTHCHECKS_STACK_CONFIG_FILE="$CLUSTER_HOME/aws-infra/resources/healthchecks.yaml"
+UPGRADE_REPORTS_STACK_CONFIG_FILE="$CLUSTER_HOME/aws-infra/resources/upgrade-reports.yaml"
 
 resources_stack=$(aws cloudformation describe-stacks --stack-name $RESOURCES_STACK_NAME | jq '.Stacks[0]')
 if [ -z "$resources_stack" ] || [ "$resources_stack" == "null" ]; then
@@ -77,11 +79,24 @@ if [ -z "$alarms_stack" ] || [ "$alarms_stack" == "null" ]; then
     aws cloudformation create-stack --region $AWS_DEFAULT_REGION --stack-name $ALARMS_STACK_NAME \
         --capabilities CAPABILITY_NAMED_IAM --template-body file://$ALARMS_STACK_CONFIG_FILE --parameters \
         ParameterKey=CloudWatchAlarmsEnabled,ParameterValue=$ENABLE_CLOUDWATCH_ALARMS \
-        ParameterKey=AlarmsEmailAddress,ParameterValue=$ALARMS_EMAIL_ADDRESS \
         ParameterKey=AlarmsSlackChannelHookUrl,ParameterValue=$ALARMS_SLACK_CHANNEL_HOOK_URL \
         ParameterKey=PagerDutyIntegrationUrl,ParameterValue=$PAGER_DUTY_INTEGRATION_URL
 
     cecho "Waiting for alarms stack to be created..." "info"
 else
     cecho "Resources stack $ALARMS_STACK_NAME already exists" "info"
+fi
+
+upgrade_reports_stack=$(aws cloudformation describe-stacks --region $AWS_DEFAULT_REGION --stack-name $UPGRADE_REPORTS_STACK_NAME | jq '.Stacks[0]')
+if [ -z "$upgrade_reports_stack" ] || [ "$upgrade_reports_stack" == "null" ]; then
+    aws cloudformation create-stack --region $AWS_DEFAULT_REGION --stack-name $UPGRADE_REPORTS_STACK_NAME \
+        --capabilities CAPABILITY_NAMED_IAM --template-body file://$UPGRADE_REPORTS_STACK_CONFIG_FILE --parameters \
+        ParameterKey=UpgradeReportsEnabled,ParameterValue=${ENABLE_UPGRADE_REPORTS:-true} \
+        ParameterKey=AlarmsEmailAddress,ParameterValue=$ALARMS_EMAIL_ADDRESS
+
+    cecho "Waiting for upgrade reports stack to be created..." "info"
+
+    aws cloudformation wait stack-create-complete --region $AWS_DEFAULT_REGION --stack-name $UPGRADE_REPORTS_STACK_NAME
+else
+    cecho "Upgrade reports stack $UPGRADE_REPORTS_STACK_NAME already exists" "info"
 fi

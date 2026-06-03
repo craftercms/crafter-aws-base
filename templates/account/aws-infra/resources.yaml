@@ -305,7 +305,7 @@ Resources:
                   - 'iam:DeleteRole'
                   - 'iam:AttachRolePolicy'
                   - 'iam:PutRolePolicy'
-                  - 'iam:ListInstanceProfiles'
+                  - 'iam:UpdateAssumeRolePolicy'
                   - 'iam:AddRoleToInstanceProfile'
                   - 'iam:ListInstanceProfilesForRole'
                   - 'iam:PassRole'
@@ -318,6 +318,7 @@ Resources:
                   - 'iam:TagOpenIDConnectProvider'
                   - 'iam:ListAttachedRolePolicies'
                   - 'iam:TagRole'
+                  - 'iam:UntagRole'
                   - 'iam:GetPolicy'
                   - 'iam:CreatePolicy'
                   - 'iam:DeletePolicy'
@@ -332,8 +333,10 @@ Resources:
               - Effect: Allow
                 Action:
                   - 'iam:GetRole'
+                  - 'iam:GetUser'
                 Resource:
                   - !Sub 'arn:aws:iam::${AWS::AccountId}:role/*'
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:user/*'
               - Effect: Allow
                 Action:
                   - 'iam:CreateServiceLinkedRole'

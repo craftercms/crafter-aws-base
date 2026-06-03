@@ -10,8 +10,8 @@ Parameters:
     Type: CommaDelimitedList
   OpenSearchVersion:
     Type: String
-    AllowedValues: ['OpenSearch_2.17', 'OpenSearch_2.15', 'OpenSearch_2.13', 'OpenSearch_2.11', 'OpenSearch_2.9','OpenSearch_2.7', 'OpenSearch_2.5', 'OpenSearch_2.3', 'OpenSearch_1.3']
-    Default: 'OpenSearch_2.17'
+    AllowedValues: ['OpenSearch_3.3', 'OpenSearch_3.1', 'OpenSearch_2.19', 'OpenSearch_2.17', 'OpenSearch_2.15', 'OpenSearch_2.13', 'OpenSearch_2.11', 'OpenSearch_2.9','OpenSearch_2.7', 'OpenSearch_2.5', 'OpenSearch_2.3', 'OpenSearch_1.3']
+    Default: 'OpenSearch_3.3'
   OpenSearchSingleNodeCluster:
     Type: String
     Default: false
@@ -242,6 +242,7 @@ Resources:
             }
           ]
         }
+        
   GuardDutySecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:

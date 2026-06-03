@@ -142,6 +142,9 @@ Parameters:
     AllowedValues:
       - true
       - false
+  AuthAtEdgeLambdaArn:
+    Type: String
+    Default: ''
 
 Conditions:
   IsTestStack:
@@ -172,6 +175,8 @@ Conditions:
     !Not [!Equals [!Join [',', !Ref AlternateCloudFrontDomainNames], '']]
   ShouldEnableCloudFrontLoggingBucket:
     !And [!Equals [true, !Ref EnableCloudFrontLogging], !Not [!Equals [!Ref CloudFrontLoggingS3BucketName, '']]]
+  AuthAtEdgeLambdaArnSpecified:
+    !Not [!Equals [!Ref AuthAtEdgeLambdaArn, '']]    
 
 Resources:
   S3BackupSiteBucket:
@@ -306,6 +311,12 @@ Resources:
           CachedMethods: !Ref LBOriginCacheBehaviorCachedMethods
           CachePolicyId: !If [LBOriginCachePolicyIdSpecified, !Ref LBOriginCachePolicyId, !Ref 'AWS::NoValue']
           OriginRequestPolicyId: !If [LBOriginOriginRequestPolicyIdSpecified, !Ref LBOriginOriginRequestPolicyId, !Ref 'AWS::NoValue']
+          LambdaFunctionAssociations:
+            !If
+            - AuthAtEdgeLambdaArnSpecified
+            - - EventType: viewer-request
+                LambdaFunctionARN: !Ref AuthAtEdgeLambdaArn
+            - !Ref 'AWS::NoValue'
         CacheBehaviors:
           - PathPattern: '/static-assets/*'
             TargetOriginId: !If [ShouldEnableS3OriginFailover, !Sub 'S3-With-Failover-${S3SiteBucketName}', !Sub 'S3-${S3SiteBucketName}']
@@ -316,6 +327,12 @@ Resources:
             CachePolicyId: !If [S3OriginCachePolicyIdSpecified, !Ref S3OriginCachePolicyId, !Ref 'AWS::NoValue']
             OriginRequestPolicyId: !If [S3OriginOriginRequestPolicyIdSpecified, !Ref S3OriginOriginRequestPolicyId, !Ref 'AWS::NoValue']
             ResponseHeadersPolicyId: !If [S3OriginResponseHeadersPolicyIdSpecified, !Ref S3OriginResponseHeadersPolicyId, !Ref 'AWS::NoValue']
+            LambdaFunctionAssociations:
+              !If
+              - AuthAtEdgeLambdaArnSpecified
+              - - EventType: viewer-request
+                  LambdaFunctionARN: !Ref AuthAtEdgeLambdaArn
+              - !Ref 'AWS::NoValue'
         Origins:
           - DomainName: !Ref DeliveryLBDomainName
             Id: !Sub 'LB-${DeliveryLBDomainName}'

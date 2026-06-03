@@ -163,17 +163,23 @@ spec:
         - name: deployer-config
           configMap:
             name: authoring-deployer-config
+        - name: home
+          emptyDir: {}            
         - name: temp
           emptyDir: {}
-      # initContainers:
-      #   # When there's a major MariaDB version upgrade between Studio upgrades, please run this
-      #   - name: mariadb-upgrader
-      #     image: craftercms/authoring_tomcat:latest
-      #     volumeMounts:
-      #       - name: data
-      #         mountPath: /opt/crafter/data
-      #     command: ["./docker-entrypoint.sh"]
-      #     args: ["su", "crafter", "-c", "/opt/crafter/bin/crafter.sh upgradedb"]
+      initContainers:
+        - name: home-init
+          image: busybox:latest
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p /home/crafter \
+              && chown -R 1000:1000 /home/crafter \
+              && printf "[user]\n\temail = cloud-ops@craftersoftware.com\n\tname = Crafter Cloud Ops\n" > /home/crafter/.gitconfig
+          volumeMounts:
+            - name: home
+              mountPath: /home/crafter
       containers:
         # Comment on multi-region (supplementary region)
         # Tomcat container
@@ -209,10 +215,8 @@ spec:
           ports:
             - containerPort: 8080
           volumeMounts:
-            - name: gitconfig
-              subPath: .gitconfig
-              mountPath: /home/crafter/.gitconfig
-              readOnly: true              
+            - name: home
+              mountPath: /home/crafter            
             - name: crafter-license
               subPath: crafter.lic
               mountPath: /opt/crafter/bin/apache-tomcat/shared/classes/crafter/license/crafter.lic
@@ -363,10 +367,8 @@ spec:
           ports:
             - containerPort: 9191
           volumeMounts:
-            - name: gitconfig
-              subPath: .gitconfig
-              mountPath: /home/crafter/.gitconfig
-              readOnly: true
+            - name: home
+              mountPath: /home/crafter
             - name: data
               mountPath: /opt/crafter/data
             - name: temp

@@ -5,18 +5,6 @@ Parameters:
   CloudWatchAlarmsEnabled:
     Type: String
     Default: true
-  AlarmsEmailAddress:
-    Type: String
-    AllowedPattern: "^[\\x20-\\x45]?[\\w-\\+]+(\\.[\\w]+)*@[\\w-]+(\\.[\\w]+)*(\\.[a-z]{2,})$"
-    ConstraintDescription: Email address required.
-    Default: alarm@craftersoftware.com
-    Description: Enter an email address you want to subscribe to the Amazon SNS topic that will send alarms for Cloudfront issues.
-  CloudOpsEmailAddress:
-    Type: String
-    AllowedPattern: "^[\\x20-\\x45]?[\\w-\\+]+(\\.[\\w]+)*@[\\w-]+(\\.[\\w]+)*(\\.[a-z]{2,})$"
-    ConstraintDescription: Email address required.
-    Default: cloud-ops@craftersoftware.com
-    Description: Enter an email address you want to subscribe to the Amazon SNS topic that will send notifications for cluster issues.
   AlarmsSlackChannelHookUrl:
     Type: String
   PagerDutyIntegrationUrl:
@@ -60,23 +48,6 @@ Resources:
       Protocol: HTTPS
       Endpoint: !Ref PagerDutyIntegrationUrl
 
-  # Required for SOC 2
-  AlarmsSNSTopic:
-    Type: AWS::SNS::Topic
-    Properties:
-      Subscription:
-      - Endpoint: 
-          Ref: AlarmsEmailAddress
-        Protocol: email
-
-  CloudOpsSNSTopic:
-    Type: AWS::SNS::Topic
-    Properties:
-      Subscription:
-      - Endpoint: 
-          Ref: CloudOpsEmailAddress
-        Protocol: email
-
   SendCWAlarmsToSlackLambdaRole:
     Type: AWS::IAM::Role
     Properties:
@@ -101,7 +72,7 @@ Resources:
   SendCWAlarmsToSlackLambda:
     Type: AWS::Lambda::Function
     Properties:
-      Runtime: python3.9
+      Runtime: python3.13
       Role: !GetAtt SendCWAlarmsToSlackLambdaRole.Arn
       Handler: index.handler
       Timeout: 30
@@ -493,10 +464,10 @@ Resources:
       Threshold: '20000000000'
       TreatMissingData: "missing"
       AlarmActions:
-        - !Ref CloudOpsSNSTopic
+        - !Ref AlarmsPagerDutySNSTopic
         - !Ref SlackSNSTopic
       OKActions: 
-        - !Ref CloudOpsSNSTopic
+        - !Ref AlarmsPagerDutySNSTopic
         - !Ref SlackSNSTopic
 
   AuthoringLogsVolumeUsageAlarm:
@@ -530,10 +501,10 @@ Resources:
       Threshold: '16000000000'
       TreatMissingData: "missing"
       AlarmActions:
-        - !Ref CloudOpsSNSTopic
+        - !Ref AlarmsPagerDutySNSTopic
         - !Ref SlackSNSTopic
       OKActions: 
-        - !Ref CloudOpsSNSTopic
+        - !Ref AlarmsPagerDutySNSTopic
         - !Ref SlackSNSTopic
 
   AuthoringDataVolumeFreeInodesAlarm:
@@ -567,10 +538,10 @@ Resources:
       Threshold: '100000'
       TreatMissingData: "missing"
       AlarmActions:
-        - !Ref CloudOpsSNSTopic
+        - !Ref AlarmsPagerDutySNSTopic
         - !Ref SlackSNSTopic
       OKActions: 
-        - !Ref CloudOpsSNSTopic
+        - !Ref AlarmsPagerDutySNSTopic
         - !Ref SlackSNSTopic
 
   OSIndexingLatencyAlarm:
@@ -668,8 +639,10 @@ Resources:
       Threshold: '5000'
       TreatMissingData: "breaching"
       AlarmActions:
+        - !Ref AlarmsPagerDutySNSTopic
         - !Ref SlackSNSTopic
       OKActions: 
+        - !Ref AlarmsPagerDutySNSTopic
         - !Ref SlackSNSTopic
 
   OSCPUUtilizationAlarm:
