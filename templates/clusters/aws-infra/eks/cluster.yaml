@@ -189,6 +189,7 @@ fargateProfiles:
 managedNodeGroups:
   # K8s support workers
   - name: k8s-support-workers-az1-v1
+    amiFamily: AmazonLinux2023  
     tags:
       # EC2 tags required for cluster-autoscaler auto-discovery
       k8s.io/cluster-autoscaler/enabled: "true"
@@ -203,8 +204,10 @@ managedNodeGroups:
     maxSize: 3
     volumeSize: 20
     privateNetworking: true
+    propagateASGTags: true
 
   - name: k8s-support-workers-az2-v1
+    amiFamily: AmazonLinux2023  
     tags:
       # EC2 tags required for cluster-autoscaler auto-discovery
       k8s.io/cluster-autoscaler/enabled: "true"
@@ -219,9 +222,11 @@ managedNodeGroups:
     maxSize: 3
     volumeSize: 20
     privateNetworking: true
+    propagateASGTags: true
 
   # Authoring workers
   - name: authoring-workers-az1-v1
+    amiFamily: AmazonLinux2023
     tags:
       # EC2 tags required for cluster-autoscaler auto-discovery
       k8s.io/cluster-autoscaler/enabled: "true"
@@ -241,10 +246,12 @@ managedNodeGroups:
     maxSize: 10
     volumeSize: 50
     privateNetworking: true
+    propagateASGTags: true
     securityGroups: 
       attachIDs: ["{{authoring_ng_sg}}"]
 
   # Delivery workers
+    amiFamily: AmazonLinux2023  
   - name: delivery-workers-v1
     tags:
       # EC2 tags required for cluster-autoscaler auto-discovery
@@ -264,6 +271,7 @@ managedNodeGroups:
     maxSize: 20
     volumeSize: 20
     privateNetworking: true
+    propagateASGTags: true
     securityGroups: 
       attachIDs: ["{{delivery_ng_sg}}"]
 
@@ -273,5 +281,8 @@ addons:
 - name: vpc-cni
   attachPolicyARNs:
     - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+  resolveConflicts: overwrite
 - name: coredns
+  resolveConflicts: overwrite
 - name: kube-proxy
+  resolveConflicts: overwrite

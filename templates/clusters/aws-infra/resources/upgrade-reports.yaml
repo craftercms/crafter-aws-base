@@ -1,0 +1,421 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Weekly OpenSearch and EKS upgrade reports for the {{cluster_name}} cluster
+
+Parameters:
+  UpgradeReportsEnabled:
+    Type: String
+    Default: true
+    AllowedValues:
+      - true
+      - false
+  AlarmsEmailAddress:
+    Type: String
+    Default: '{{alarms_email_address}}'
+  EksVersionsBehindThreshold:
+    Type: Number
+    Default: 2
+    MinValue: 1
+    MaxValue: 5
+
+Conditions:
+  UpgradeReportsEnabled:
+    !Equals [!Ref UpgradeReportsEnabled, true]
+
+Resources:
+  UpgradeReportSNSTopic:
+    Type: AWS::SNS::Topic
+    Condition: UpgradeReportsEnabled
+    Properties:
+      TopicName: "{{cluster_name}}-UpgradeReportSNSTopic"
+
+  UpgradeReportEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: UpgradeReportsEnabled
+    Properties:
+      TopicArn: !Ref UpgradeReportSNSTopic
+      Protocol: email
+      Endpoint: !Ref AlarmsEmailAddress
+
+  WeeklyUpgradeReportLambdaRole:
+    Type: AWS::IAM::Role
+    Condition: UpgradeReportsEnabled
+    Properties:
+      RoleName: "{{cluster_name}}-WeeklyUpgradeReportLambdaRole"
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service: lambda.amazonaws.com
+      Policies:
+        - PolicyName: WeeklyUpgradeReportLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+              - Effect: Allow
+                Action:
+                  - es:DescribeDomain
+                  - es:GetCompatibleVersions
+                  - es:ListPackagesForDomain
+                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/{{cluster_name}}-opensearch/*"
+              - Effect: Allow
+                Action:
+                  - es:DescribePackages
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - eks:DescribeCluster
+                Resource: !Sub "arn:aws:eks:${AWS::Region}:${AWS::AccountId}:cluster/{{cluster_name}}"
+              - Effect: Allow
+                Action:
+                  - eks:DescribeClusterVersions
+                Resource: !Sub "arn:aws:eks:${AWS::Region}:${AWS::AccountId}:*"
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Ref UpgradeReportSNSTopic
+
+  WeeklyUpgradeReportLambda:
+    Type: AWS::Lambda::Function
+    Condition: UpgradeReportsEnabled
+    Properties:
+      Tags:
+        - Key: craftercms:environment
+          Value: {{environment}}
+        - Key: craftercms:prod
+          Value: {{prod_env}}
+      FunctionName: "{{cluster_name}}-weekly-upgrade-report-lambda"
+      Runtime: python3.13
+      Handler: index.handler
+      Timeout: 120
+      Role: !GetAtt WeeklyUpgradeReportLambdaRole.Arn
+      Environment:
+        Variables:
+          OPENSEARCH_DOMAIN_NAME: "{{cluster_name}}-opensearch"
+          EKS_CLUSTER_NAME: "{{cluster_name}}"
+          SNS_TOPIC_ARN: !Ref UpgradeReportSNSTopic
+          EKS_VERSIONS_BEHIND_THRESHOLD: !Ref EksVersionsBehindThreshold
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          import os
+          from datetime import datetime, timezone
+
+          import boto3
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          os_client = boto3.client('opensearch')
+          eks_client = boto3.client('eks')
+          sns_client = boto3.client('sns')
+
+          OPENSEARCH_DOMAIN_NAME = os.environ['OPENSEARCH_DOMAIN_NAME']
+          EKS_CLUSTER_NAME = os.environ['EKS_CLUSTER_NAME']
+          SNS_TOPIC_ARN = os.environ['SNS_TOPIC_ARN']
+          EKS_VERSIONS_BEHIND_THRESHOLD = int(os.environ.get('EKS_VERSIONS_BEHIND_THRESHOLD', '2'))
+
+
+          def _semver_key(version):
+              major, minor = version.split('.')[:2]
+              return int(major), int(minor)
+
+
+          def check_service_software_update(domain_info):
+              software_opts = domain_info.get('ServiceSoftwareOptions', {})
+              update_available = software_opts.get('UpdateAvailable', False)
+              current_version = software_opts.get('CurrentVersion', 'Unknown')
+              if not update_available:
+                  return {'available': False, 'current_version': current_version}
+              details = f"Current: `{current_version}`"
+              new_version = software_opts.get('NewVersion', '')
+              if new_version:
+                  details += f" -> New: `{new_version}`"
+              update_status = software_opts.get('UpdateStatus', '')
+              if update_status:
+                  details += f" (Status: {update_status})"
+              return {'available': True, 'current_version': current_version, 'details': details}
+
+
+          def check_engine_upgrade(domain_name, current_engine_version):
+              try:
+                  response = os_client.get_compatible_versions(DomainName=domain_name)
+                  for entry in response.get('CompatibleVersions', []):
+                      if entry.get('SourceVersion') == current_engine_version and entry.get('TargetVersions'):
+                          return {'available': True, 'target_versions': entry['TargetVersions']}
+                  return {'available': False}
+              except Exception as exc:
+                  logger.warning('Error checking compatible OpenSearch versions: %s', exc)
+                  return {'available': False, 'error': str(exc)}
+
+
+          def _list_domain_packages(domain_name):
+              installed = {}
+              next_token = None
+              while True:
+                  kwargs = {'DomainName': domain_name}
+                  if next_token:
+                      kwargs['NextToken'] = next_token
+                  response = os_client.list_packages_for_domain(**kwargs)
+                  for pkg in response.get('DomainPackageDetailsList', []):
+                      pkg_id = pkg.get('PackageID', '')
+                      if pkg_id:
+                          installed[pkg_id] = {
+                              'name': pkg.get('PackageName', pkg_id),
+                              'current_version': pkg.get('PackageVersion', ''),
+                          }
+                  next_token = response.get('NextToken')
+                  if not next_token:
+                      break
+              return installed
+
+
+          def _describe_packages(package_ids):
+              if not package_ids:
+                  return []
+              details = []
+              next_token = None
+              while True:
+                  kwargs = {'Filters': [{'Name': 'PackageID', 'Value': list(package_ids)}]}
+                  if next_token:
+                      kwargs['NextToken'] = next_token
+                  response = os_client.describe_packages(**kwargs)
+                  details.extend(response.get('PackageDetailsList', []))
+                  next_token = response.get('NextToken')
+                  if not next_token:
+                      break
+              return details
+
+
+          def check_package_updates(domain_name):
+              try:
+                  installed = _list_domain_packages(domain_name)
+                  if not installed:
+                      return {'updates': [], 'error': None}
+                  updates = []
+                  for pkg_detail in _describe_packages(installed.keys()):
+                      pkg_id = pkg_detail.get('PackageID', '')
+                      if pkg_id not in installed:
+                          continue
+                      available_version = pkg_detail.get('AvailablePackageVersion', '')
+                      current_version = installed[pkg_id]['current_version']
+                      if available_version and available_version != current_version:
+                          updates.append({
+                              'name': installed[pkg_id]['name'],
+                              'current_version': current_version,
+                              'available_version': available_version,
+                          })
+                  return {'updates': updates, 'error': None}
+              except Exception as exc:
+                  logger.warning('Error checking OpenSearch package updates: %s', exc)
+                  return {'updates': [], 'error': str(exc)}
+
+
+          def _latest_standard_eks_version():
+              latest = None
+              next_token = None
+              while True:
+                  kwargs = {'versionStatus': 'STANDARD_SUPPORT'}
+                  if next_token:
+                      kwargs['nextToken'] = next_token
+                  response = eks_client.describe_cluster_versions(**kwargs)
+                  for entry in response.get('clusterVersions', []):
+                      version = entry.get('clusterVersion')
+                      if version and (latest is None or _semver_key(version) > _semver_key(latest)):
+                          latest = version
+                  next_token = response.get('nextToken')
+                  if not next_token:
+                      break
+              return latest
+
+
+          def check_eks_upgrade(cluster_name):
+              try:
+                  current = eks_client.describe_cluster(name=cluster_name)['cluster']['version']
+                  latest = _latest_standard_eks_version()
+                  if not latest:
+                      return {'needs_upgrade': False, 'error': 'No standard-support EKS versions returned'}
+                  current_key = _semver_key(current)
+                  latest_key = _semver_key(latest)
+                  if current_key[0] != latest_key[0]:
+                      versions_behind = 99
+                  else:
+                      versions_behind = latest_key[1] - current_key[1]
+                  return {
+                      'needs_upgrade': versions_behind >= EKS_VERSIONS_BEHIND_THRESHOLD,
+                      'current_version': current,
+                      'latest_version': latest,
+                      'versions_behind': versions_behind,
+                      'threshold': EKS_VERSIONS_BEHIND_THRESHOLD,
+                      'error': None,
+                  }
+              except Exception as exc:
+                  logger.warning('Error checking EKS version: %s', exc)
+                  return {'needs_upgrade': False, 'error': str(exc)}
+
+
+          def build_report(opensearch_result, eks_result):
+              now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
+              os_findings = opensearch_result['has_findings']
+              eks_findings = eks_result.get('needs_upgrade', False)
+              check_errors = opensearch_result['errors'] + ([eks_result['error']] if eks_result.get('error') else [])
+              has_errors = bool(check_errors)
+              has_findings = os_findings or eks_findings
+
+              if has_errors:
+                  subject = f"Upgrade Report - {{cluster_name}} (incomplete)"
+                  lines = [
+                      'Weekly Infrastructure Upgrade Report',
+                      '==================================================',
+                      f"Cluster: {{cluster_name}}",
+                      f"Time:    {now}",
+                      '',
+                      'One or more upgrade checks could not complete. Results may be incomplete.',
+                      '',
+                  ]
+                  for err in check_errors:
+                      lines.append(f"   Error: {err}")
+                  lines.append('')
+              elif has_findings:
+                  subject = f"Upgrade Report - {{cluster_name}}"
+                  lines = [
+                      'Weekly Infrastructure Upgrade Report',
+                      '==================================================',
+                      f"Cluster: {{cluster_name}}",
+                      f"Time:    {now}",
+                      '',
+                      'ACTION REQUIRED - the following upgrades are available:',
+                      '',
+                  ]
+              else:
+                  subject = f"Upgrade Report - {{cluster_name}} (up to date)"
+                  lines = [
+                      'Weekly Infrastructure Upgrade Report',
+                      '==================================================',
+                      f"Cluster: {{cluster_name}}",
+                      f"Time:    {now}",
+                      '',
+                      'Everything is up-to-date. No upgrades required.',
+                      '',
+                      '==================================================',
+                      'This is an automated weekly infrastructure upgrade check.',
+                  ]
+                  return subject, '\n'.join(lines)
+
+              os_data = opensearch_result
+              if os_data['software_update']['available']:
+                  lines.append('OpenSearch Service Software Update Available')
+                  lines.append(f"   {os_data['software_update']['details']}")
+                  lines.append('')
+              if os_data['engine_upgrade']['available']:
+                  targets = ', '.join(f"`{v}`" for v in os_data['engine_upgrade']['target_versions'])
+                  lines.append('OpenSearch Engine Version Upgrade Available')
+                  lines.append(f"   Current: `{os_data['engine_version']}`")
+                  lines.append(f"   Available upgrade targets: {targets}")
+                  lines.append('')
+              if os_data['package_updates']:
+                  lines.append(f"{len(os_data['package_updates'])} OpenSearch package(s) have updates available")
+                  for pkg in os_data['package_updates']:
+                      lines.append(
+                          f"   - {pkg['name']}: `{pkg['current_version']}` -> `{pkg['available_version']}`"
+                      )
+                  lines.append('')
+
+              if eks_findings:
+                  lines.append('EKS Cluster Version Upgrade Recommended')
+                  lines.append(f"   Current: `{eks_result['current_version']}`")
+                  lines.append(f"   Latest standard support: `{eks_result['latest_version']}`")
+                  lines.append(
+                      f"   Versions behind latest: {eks_result['versions_behind']} "
+                      f"(threshold: {eks_result['threshold']})"
+                  )
+                  lines.append('')
+
+              lines += [
+                  '==================================================',
+                  'This is an automated weekly infrastructure upgrade check.',
+              ]
+              return subject, '\n'.join(lines)
+
+
+          def check_opensearch(domain_name):
+              response = os_client.describe_domain(DomainName=domain_name)
+              domain_info = response['DomainStatus']
+              engine_version = domain_info.get('EngineVersion', 'Unknown')
+              software_update = check_service_software_update(domain_info)
+              engine_upgrade = check_engine_upgrade(domain_name, engine_version)
+              package_result = check_package_updates(domain_name)
+              errors = [e for e in [engine_upgrade.get('error'), package_result.get('error')] if e]
+              has_findings = (
+                  software_update['available']
+                  or engine_upgrade['available']
+                  or len(package_result['updates']) > 0
+              )
+              return {
+                  'engine_version': engine_version,
+                  'software_update': software_update,
+                  'engine_upgrade': engine_upgrade,
+                  'package_updates': package_result['updates'],
+                  'errors': errors,
+                  'has_findings': has_findings,
+              }
+
+
+          def handler(event, context):
+              logger.info('Running weekly upgrade report for cluster %s', EKS_CLUSTER_NAME)
+              opensearch_result = check_opensearch(OPENSEARCH_DOMAIN_NAME)
+              eks_result = check_eks_upgrade(EKS_CLUSTER_NAME)
+              subject, body = build_report(opensearch_result, eks_result)
+              sns_client.publish(
+                  TopicArn=SNS_TOPIC_ARN,
+                  Subject=subject[:100],
+                  Message=body,
+              )
+              logger.info('Published upgrade report: %s', subject)
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps({
+                      'cluster': EKS_CLUSTER_NAME,
+                      'openSearchDomain': OPENSEARCH_DOMAIN_NAME,
+                      'openSearchFindings': opensearch_result['has_findings'],
+                      'eksUpgradeRecommended': eks_result.get('needs_upgrade', False),
+                      'checkErrors': opensearch_result['errors'] + ([eks_result['error']] if eks_result.get('error') else []),
+                  }),
+              }
+
+  WeeklyUpgradeReportLambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: UpgradeReportsEnabled
+    DependsOn: WeeklyUpgradeReportScheduleRule
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref WeeklyUpgradeReportLambda
+      Principal: events.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/{{cluster_name}}-WeeklyUpgradeReportSchedule"
+
+  WeeklyUpgradeReportScheduleRule:
+    Type: AWS::Events::Rule
+    Condition: UpgradeReportsEnabled
+    Properties:
+      Name: "{{cluster_name}}-WeeklyUpgradeReportSchedule"
+      Description: Weekly OpenSearch and EKS upgrade check for cluster {{cluster_name}}
+      ScheduleExpression: cron(0 9 ? * MON *)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt WeeklyUpgradeReportLambda.Arn
+          Id: WeeklyUpgradeReportLambdaTarget
+
+Outputs:
+  UpgradeReportSNSTopicArn:
+    Condition: UpgradeReportsEnabled
+    Value: !Ref UpgradeReportSNSTopic
+  WeeklyUpgradeReportLambdaArn:
+    Condition: UpgradeReportsEnabled
+    Value: !GetAtt WeeklyUpgradeReportLambda.Arn

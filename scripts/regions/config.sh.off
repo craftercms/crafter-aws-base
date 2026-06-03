@@ -3,6 +3,8 @@
 # Enter here config for scripts
 # -----------------------------
 
+# Leave always empty
+export AWS_PAGER=
 # Required
 export REGION=
 # Required

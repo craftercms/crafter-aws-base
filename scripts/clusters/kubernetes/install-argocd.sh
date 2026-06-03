@@ -13,7 +13,7 @@ cd $ARGOCD_CONFIG_HOME
 
 cecho "Installing ArgoCD in cluster $CLUSTER_NAME..." "info"
 
-kubectl apply -k .
+kubectl apply --server-side --force-conflicts -k .
 
 cecho "Sleeping 30 seconds to wait for ArgoCD to be installed..."
 sleep 30

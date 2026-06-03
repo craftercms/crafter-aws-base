@@ -8,13 +8,13 @@ export ENVIRONMENT=default
 # Required
 export ENVIRONMENT_VERSION=v1
 # Required
-export EKS_VERSION=1.34
+export EKS_VERSION=1.35
 # Required
-export EKSCTL_VERSION=v0.220.0
+export EKSCTL_VERSION=v0.224.0
 # Required (use versions specified in https://docs.aws.amazon.com/eks/latest/userguide/install-kubectl.html)
-export KUBECTL_VERSION=1.34.2
+export KUBECTL_VERSION=v1.35.0
 # Required
-export K9S_VERSION=v0.50.16
+export K9S_VERSION=v0.50.18
 # Required (default 11am ET)
 export UPGRADE_NODES_CRON='0 11 * * 0'
 # Required
@@ -153,6 +153,8 @@ export CLOUDFRONT_SECRET_HEADER_NAME_SUFFIX=
 export CLOUDFRONT_SECRET_HEADER_VALUE=
 # Required
 export ALARMS_EMAIL_ADDRESS=alarm@craftersoftware.com
+# Optional (true or false). Weekly OpenSearch and EKS upgrade report via email
+export ENABLE_UPGRADE_REPORTS=true
 # Optional, if specified will enable Deployer notifications (comma-separated email addresses)
 export DEPLOYER_NOTIFICATION_EMAIL_ADDRESSES=
 # Required
