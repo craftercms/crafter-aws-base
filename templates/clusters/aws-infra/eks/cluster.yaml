@@ -251,8 +251,8 @@ managedNodeGroups:
       attachIDs: ["{{authoring_ng_sg}}"]
 
   # Delivery workers
-    amiFamily: AmazonLinux2023  
   - name: delivery-workers-v1
+    amiFamily: AmazonLinux2023
     tags:
       # EC2 tags required for cluster-autoscaler auto-discovery
       k8s.io/cluster-autoscaler/enabled: "true"
