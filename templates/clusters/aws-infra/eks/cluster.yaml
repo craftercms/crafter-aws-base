@@ -288,4 +288,3 @@ addons:
   resolveConflicts: overwrite
 - name: metrics-server
   resolveConflicts: overwrite
-

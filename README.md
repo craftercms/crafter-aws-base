@@ -7,10 +7,7 @@ This project provides scripts to setup an EKS Kubernetes cluster with Crafter CM
 ## Pre-requisites
 
 1. Install AWS CLI (https://aws.amazon.com/cli/)
-2. Install kubectl (https://kubernetes.io/docs/tasks/tools/install-kubectl/)
-3. Install eksctl (https://docs.aws.amazon.com/eks/latest/userguide/eksctl.html)
-4. Install k9s (https://github.com/derailed/k9s)
-5. Install jq (https://stedolan.github.io/jq/download/)
+2. Install the Crafter Cloud Management Tools:  https://github.com/craftersoftware/cloud-management-tools.git
 5. Create a fork of this repository for the client (e.g. `crafter-aws-tpci`)
 
 ## Run the account setup script
@@ -23,7 +20,7 @@ the file `config.qa.sh` (`ACC_ID` can be anything you like as long as it's diffe
 you can leave `ENV` empty (`config.sh`).
 2. Open the config file and fill the properties appropiately. You can leave the ones that are auto-generated empty 
 and they will be filled by the scripts automatically.
-3. AWS_PROFILE should be the AWS profile used to access the resources of the AWS account of the client. It can be setup with `aws --profile CLIENT_PROFILE configure`
+3. AWS_PROFILE should be the AWS profile used to access the resources of the AWS account of the client.
 4. Run `./scripts/account/setup.sh` and follow the instructions. When being asked for the config.sh suffix, provide
 the `ACC_ID` string mentioned aboved.
 5. Navigate to the CloudFormation tab in the AWS console to ensure that your stack is being spun up.
@@ -38,10 +35,10 @@ the file `config.us-west-2.sh`. If there's a single `REGION`,
 you can leave it empty (`config.sh`).
 2. Open the config file and fill the properties appropiately. You can leave the ones that are auto-generated empty 
 and they will be filled by the scripts automatically.
-3. AWS_PROFILE should be the AWS profile used to access the resources of the AWS account of the client. It can be setup with `aws --profile CLIENT_PROFILE configure`
+3. AWS_PROFILE should be the AWS profile used to access the resources of the AWS account of the client.
 4. Run `./scripts/regions/setup.sh` and follow the instructions. When being asked for the config.sh suffix, provide
 the `REGION` string mentioned aboved.
-5. Navigate to the CloudFormation tab and configure it according to the `REGION` on the AWS console. Ensure that your stack creates successfully.
+5. Navigate to the CloudFormation tab and make sure `REGION` is selected on the AWS console. Ensure that your stack creates successfully.
 
 ## Run the Environment Setup Script
 
@@ -56,7 +53,7 @@ then name the file `config.dev.sh`. If there's always going to be a single envir
 5. Navigate to the CloudFormation tab in the AWS console to ensure that your stack is being spun up.
 
 ## Create blue and green domain names 
-1. Navigate to route-53 in the AWS console and create new domain names for the client. The naming convention is $CLIENT_ID-<blue/green>.net
+1. Navigate to Route-53 in the AWS console and create new domain names for the client. The naming convention is $CLIENT_ID-<blue/green>.net
 
 ## Run the Clusters Setup Script
 
@@ -64,42 +61,72 @@ then name the file `config.dev.sh`. If there's always going to be a single envir
 representing the environment of this cluster, and `blue` if it's going to be the main cluster, or `green` if it's cluster that it's going to
 be used for testing and will eventually transition to become the `blue` cluster. For example, if this is going to be the Prod `blue` cluster, 
 then name the file `config.prod-blue.sh`. If there's always going to be a single environment, you can leave `ENV-(blue|green)` empty (`config.sh`).
-2. Open the config.sh file and fill in the properties approriately.
+2. Open the config.sh file and fill in the properties approriately. You can leave the ones that are auto-generated empty 
+and they will be filled by the scripts automatically.
 3. For the AWS_AZ sections, the value is $DEFAULT_REGION<a/b/c>
 4. For the AWS_BACKUP_REGION, the value is the default region's closest region (us-east-1's DR would be us-east-2) OR the region the client has decided as the backup region in case of disaster recovery.
-5. Run the `./scripts/clusters/setup.sh` script and enter the environment's name when prompted.
+5. If you don't already have them, request the mail properties from the Cloud Ops lead.
+6. `AUTHORING_DOMAIN_NAME` and `DELIVERY_DOMAIN_NAME` are the Route-53 records that point to the future Authoring and Delivery ALBs (you'll create them in a future step). Normally they 
+are `ENV-authoring.CLIENT_ID-(blue|green).net` and `ENV-delivery.CLIENT_ID-(blue|green).net`.
+6. If you don't already have them, request the `ALARMS_SLACK_CHANNEL_HOOK_URL` and `PAGER_DUTY_INTEGRATION_URL` from the Cloud Ops lead.
+7. Run the `./scripts/clusters/setup.sh` script and enter the environment's name when prompted.
 
 - Add the Crafter license under `./clusters/{AWS_REGION}/{CLUSTER_NAME}/kubernetes/gitops/apps/main/craftercms/resources/common/secrets/crafter.lic`.
 
 ## Install Crafter CMS from ArgoCD
 
-- Make sure you push the cluster back up to the master repository before continuing with this section.
-1. In another terminal, start port-forward connection `kubectl port-forward svc/argocd-server -n argocd 18080:443` 
-2. Login to ArgoCD at http://localhost:18080 from your browser
-3. Click on the gears icon on the left nav bar (Settings), then Repositories.
-4. Connect to the repo at `GITOPS_REPO_URL`, either through SSH or HTTPs.
-   - **Name:** crafter-aws-{CLIENT_NAME}
-   - **Project:** default
-   - **Repository URL:** URL of the repository you connected to previously
-   - **SSH Private key data:** Private key (Given beforehand)
-5. Click on `Create`
-6. Create `crafter-cloud-app` by clicking the `NEW APP` icon on the Applications page. Fill the following configurations and the leave the rest as default. 
-   - **Name:** crafter-cloud-apps
-   - **Project:** default
-   - **Repository URL:** URL of the repository you connected to previously
-   - **Revision:** master
-   - **Path:** clusters/`CLUSTER_REGION`/`CLUSTER_NAME`/kubernetes/gitops/apps/bootstrap
-   - **Cluster URL:** https://kubernetes.default.svc
+- Make sure you commit and push the cluster config back up to the master repository before continuing with this section.
 
-7. Click on `Sync` and then `Synchronize` in the `crafter-cloud-apps` app. All the Kubernetes addons and the 
+### Stage 1 — Bootstrap Argo CD and deploy addons
 
-![Crafter Cloud Apps Synced](argocd-crafter-cloud-apps-unsynced.png)
+The `install-argocd.sh` script (run during cluster setup) already installs Argo CD via kustomize and prints the initial admin password.
 
-8. Commit the change and push it to the repo. Click on the `Refresh` button of `craftercms` app.
-9. Click on `Sync` and then `Synchronize` on the `craftercms` app.
-10. Get the Authoring LB from `k9s` (by entering `:ingress`), or by running `kubectl -n craftercms get ingress` 
-11. Finally enter `http://AUTHORING_LB/studio` in your browser, Studio should appear. You should be able to login 
-with `admin/admin`.
+After the script completes:
+
+1. Register your GitOps repository:
+   - SSH: `argocd repo add GITOPS_REPO_URL --ssh-private-key-path /path/to/key --name crafter-aws-CLIENT_NAME`
+   - HTTPS: `argocd repo add GITOPS_REPO_URL --username GITOPS_USER --password GITOPS_PASS --name crafter-aws-CLIENT_NAME`
+2. Create and sync the bootstrap app (this creates the child Argo CD apps):
+   ```
+   argocd app create crafter-cloud-apps \
+     --project default \
+     --repo GITOPS_REPO_URL \
+     --revision master \
+     --path clusters/CLUSTER_REGION/CLUSTER_NAME/kubernetes/gitops/apps/bootstrap \
+     --dest-server https://kubernetes.default.svc
+   argocd app sync crafter-cloud-apps --prune
+   ```
+3. Sync the `aws-load-balancer-controller` app explicitly (it is not auto-synced by bootstrap app creation):
+   - `argocd app sync aws-load-balancer-controller --prune`
+4. Wait for the `aws-load-balancer-controller` app to be healthy:
+   - `argocd app wait aws-load-balancer-controller --health`
+
+### Stage 2 — Switch Argo CD to NLB (once controller is running)
+
+Once the AWS Load Balancer Controller is healthy, patch `argocd-server` from `ClusterIP` to a proper NLB-backed `LoadBalancer` service:
+```
+./scripts/clusters/kubernetes/enable-argocd-nlb.sh
+```
+
+You can then get the ArgoCD domain name by running:
+
+```
+kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+```
+
+And finally, access the ArgoCD UI by going to `https://ARGOCD_DOMAIN` in your browser (ignore the certificate error the browser gives you and proceed, since ArgoCD uses a private certificate)
+
+### Stage 2 — Deploy the rest of the apps and CrafterCMS
+
+After login to the ArgoCD UI, you can now install the rest of the apps. 
+
+1. Go through each app that's in `OutOfSync` state and `Sync` it, starting with the `storage-addons` app. Leave the `craftercms` app last
+2. Some apps might fail syncing. For those you might need to select `Server-side Apply` under the `Sync Options`.
+3. After the other apps have veen synced, sync the `craftercms` app.
+4. Wait for the `authoring` and `delivery` pods to become ready (`kubectl -n craftercms get pods`)
+5. Get the Authoring LB from `k9s` (by entering `:ingress`), or by running `kubectl -n craftercms get ingress` 
+6. Finally enter `http://AUTHORING_LB/studio` in your browser, Studio should appear. You should be able to login 
+with `admin/admin` (after creating the Authoring Route-53 record and setting the SSL certificate you should be able to access Authoring through `https://AUTHORING_DOMAIN_NAME/studio`).
 
 That's it! Crafter CMS is up and running in a Kubernetes cluster. Remember to configure the Authoring ingress at
 `./clusters/{CLUSTER_NAME}/kubernetes/gitops/apps/craftercms/authoring-deployment.yaml` with and SSL certificate 
@@ -124,7 +151,7 @@ in order to allow HTTPS access.
 7. Search for the ingress pods in k9s and copy the Addresses for both the authoring and delivery ingresses. Paste them into the Managed Services Spreadsheet.
 
 ## Adding new DNS records
-1. Navigate to the Route-53 console in the AWS console and create a new record under the hosted zone. Modify the Record type to CNAME.
+1. Navigate to the Route-53 console in the AWS console and create a new record under the Public hosted zone. Modify the Record type to CNAME.
 2. In the sub domain section, add ENV-authoring, where ENV is the environment of the cluster. If it's `.craftercloud.io`, it should be `ENV-authoring-CLIENT_ID.craftercloud.io`
 3. Repeat the same for Delivery. 
 
