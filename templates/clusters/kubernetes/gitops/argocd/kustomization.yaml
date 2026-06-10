@@ -6,3 +6,6 @@ resources:
   - install.yaml
 patches:
   - path: patches.yaml
+  # STAGE2_NLB_KUSTOMIZE_START
+  # - path: patches-nlb.yaml
+  # STAGE2_NLB_KUSTOMIZE_END
