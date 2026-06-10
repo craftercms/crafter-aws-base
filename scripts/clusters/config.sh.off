@@ -26,11 +26,11 @@ export AWS_PROFILE=
 # Required
 export AWS_DEFAULT_REGION=
 # Required
-export AWS_AZ_1=
+export AWS_AZ_1=${AWS_DEFAULT_REGION}a
 # Required
-export AWS_AZ_2=
+export AWS_AZ_2=${AWS_DEFAULT_REGION}b
 # Required
-export AWS_AZ_3=
+export AWS_AZ_3=${AWS_DEFAULT_REGION}c
 # Required
 export ACCOUNT_RESOURCES_REGION=$AWS_DEFAULT_REGION
 # Required
@@ -39,6 +39,10 @@ export ENVIRONMENT_RESOURCES_REGION=$AWS_DEFAULT_REGION
 export AWS_BACKUP_REGION=
 # Optional, specify for multi-region delivery
 export AWS_MAIN_CLUSTER_REGION=
+# Required
+export CLUSTER_TOOLS_AWS_PROFILE=crafter-cloud-infra
+# Required
+export CLUSTER_TOOLS_BUCKET=cloud-management-tools
 # Required. Authoring worker groups can be also used for standalone deployers
 export AUTHORING_WORKER_INSTANCE_TYPE=m6i.xlarge
 # Required
