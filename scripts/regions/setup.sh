@@ -13,7 +13,9 @@ if [ -z "$resources_stack" ] || [ "$resources_stack" == "null" ]; then
         --capabilities CAPABILITY_NAMED_IAM \
         --template-body file://$RESOURCES_STACK_CONFIG_FILE --parameters \
         ParameterKey=ClientId,ParameterValue="$CLIENT_ID" \
-        ParameterKey=PagerDutyIntegrationUrl,ParameterValue="$PAGER_DUTY_INTEGRATION_URL"
+        ParameterKey=AlarmsSlackChannelHookUrl,ParameterValue="${ALARMS_SLACK_CHANNEL_HOOK_URL:-}" \
+        ParameterKey=AlarmsEmailAddress,ParameterValue="$ALARMS_EMAIL_ADDRESS" \
+        ParameterKey=PagerDutyIntegrationUrl,ParameterValue="${PAGER_DUTY_INTEGRATION_URL:-}"
     echo "Waiting for regions resources stack to be created..."
 
     aws cloudformation wait stack-create-complete --stack-name $RESOURCES_STACK_NAME

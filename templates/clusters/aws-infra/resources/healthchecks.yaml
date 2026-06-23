@@ -23,8 +23,12 @@ Parameters:
     Default: 3
   AlarmsSlackChannelHookUrl:
     Type: String
+    Default: ''
+  AlarmsEmailAddress:
+    Type: String
   PagerDutyIntegrationUrl:
     Type: String
+    Default: ''
   BlackoutWindowDay:
     Type: String
     Default: 7
@@ -46,6 +50,12 @@ Parameters:
 Conditions:
   AuthoringHealthcheckHostnameSpecified:
     !Not [!Equals [!Ref AuthoringHealthcheckHostname, '']]
+  PagerDutyIntegrationUrlSpecified:
+    !Not [!Equals [!Ref PagerDutyIntegrationUrl, '']]
+  AlarmsSlackChannelHookUrlSpecified:
+    !Not [!Equals [!Ref AlarmsSlackChannelHookUrl, '']]
+  UseEmailForAlarms:
+    !Equals [!Ref AlarmsSlackChannelHookUrl, '']
 
 Resources:
   AuthoringHealthCheck: 
@@ -105,11 +115,17 @@ Resources:
       Threshold: '1.0'
       TreatMissingData: "breaching"
       AlarmActions:
-        - !Ref HealthCheckSlackSNSTopic
-        - !Ref HealthCheckPagerDutySNSTopic
+        !If
+          - PagerDutyIntegrationUrlSpecified
+          - - !Ref HealthCheckNotificationSNSTopic
+            - !Ref HealthCheckPagerDutySNSTopic
+          - - !Ref HealthCheckNotificationSNSTopic
       OKActions:
-        - !Ref HealthCheckSlackSNSTopic
-        - !Ref HealthCheckPagerDutySNSTopic
+        !If
+          - PagerDutyIntegrationUrlSpecified
+          - - !Ref HealthCheckNotificationSNSTopic
+            - !Ref HealthCheckPagerDutySNSTopic
+          - - !Ref HealthCheckNotificationSNSTopic
 
   DeliveryHealthcheckAlarm:
     Type: AWS::CloudWatch::Alarm
@@ -138,17 +154,25 @@ Resources:
       Threshold: '1.0'
       TreatMissingData: "breaching"
       AlarmActions:
-        - !Ref HealthCheckSlackSNSTopic
-        - !Ref HealthCheckPagerDutySNSTopic
+        !If
+          - PagerDutyIntegrationUrlSpecified
+          - - !Ref HealthCheckNotificationSNSTopic
+            - !Ref HealthCheckPagerDutySNSTopic
+          - - !Ref HealthCheckNotificationSNSTopic
       OKActions:
-        - !Ref HealthCheckSlackSNSTopic
-        - !Ref HealthCheckPagerDutySNSTopic
+        !If
+          - PagerDutyIntegrationUrlSpecified
+          - - !Ref HealthCheckNotificationSNSTopic
+            - !Ref HealthCheckPagerDutySNSTopic
+          - - !Ref HealthCheckNotificationSNSTopic
 
   HealthCheckPagerDutySNSTopic:
     Type: AWS::SNS::Topic
+    Condition: PagerDutyIntegrationUrlSpecified
   
   HealthCheckPagerDutySubscription:
     Type: AWS::SNS::Subscription
+    Condition: PagerDutyIntegrationUrlSpecified
     Properties:
       RawMessageDelivery: False
       TopicArn: !GetAtt HealthCheckPagerDutySNSTopic.TopicArn
@@ -157,6 +181,7 @@ Resources:
 
   SendCWAlarmsToSlackLambdaRole:
     Type: AWS::IAM::Role
+    Condition: AlarmsSlackChannelHookUrlSpecified
     Properties:
       AssumeRolePolicyDocument:
         Statement:
@@ -178,6 +203,7 @@ Resources:
           
   SendCWAlarmsToSlackLambdaFunctionInvokePermission:
     Type: 'AWS::Lambda::Permission'
+    Condition: AlarmsSlackChannelHookUrlSpecified
     Properties:
       Action: 'lambda:InvokeFunction'
       FunctionName: !Ref SendCWAlarmsToSlackLambda
@@ -185,6 +211,7 @@ Resources:
 
   SendCWAlarmsToSlackLambda:
     Type: AWS::Lambda::Function
+    Condition: AlarmsSlackChannelHookUrlSpecified
     Properties:
       Tags:
         - Key: craftercms:environment
@@ -331,18 +358,51 @@ Resources:
                   ]
               }
 
+          def notify_generic(message):
+              return {
+                  "type": "home",
+                  "blocks": [
+                      {
+                          "type": "header",
+                          "text": {
+                              "type": "plain_text",
+                              "text": ":warning: NOTIFICATION"
+                          }
+                      },
+                      {
+                          "type": "divider"
+                      },
+                      {
+                          "type": "section",
+                          "text": {
+                              "type": "mrkdwn",
+                              "text": message
+                          },
+                          "block_id": "text1"
+                      }
+                  ]
+              }
+
           def handler(event, context):
-              sns_message = json.loads(event["Records"][0]["Sns"]["Message"])
-              alarm = get_alarm_attributes(sns_message)
+              raw_message = event["Records"][0]["Sns"]["Message"]
+              msg = None
 
-              msg = str()
+              try:
+                  sns_message = json.loads(raw_message)
+                  if 'AlarmName' in sns_message:
+                      alarm = get_alarm_attributes(sns_message)
 
-              if alarm['state'] == 'INSUFFICIENT_DATA':
-                  msg = notify_insufficient_data(alarm)
-              elif alarm['state'] == 'ALARM':
-                  msg = notify_alarm(alarm)
-              elif alarm['state'] == 'OK':
-                  msg = notify_ok(alarm)
+                      if alarm['state'] == 'INSUFFICIENT_DATA':
+                          msg = notify_insufficient_data(alarm)
+                      elif alarm['state'] == 'ALARM':
+                          msg = notify_alarm(alarm)
+                      elif alarm['state'] == 'OK':
+                          msg = notify_ok(alarm)
+              except (json.JSONDecodeError, KeyError, TypeError, IndexError):
+                  pass
+
+              if msg is None:
+                  msg = notify_generic(raw_message)
 
               encoded_msg = json.dumps(msg).encode("utf-8")
               resp = http.request("POST", slack_url, body=encoded_msg)
@@ -354,9 +414,21 @@ Resources:
                   }
               )
 
-  HealthCheckSlackSNSTopic:
+  HealthCheckNotificationSNSTopic:
     Type: AWS::SNS::Topic
+
+  HealthCheckSlackSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: AlarmsSlackChannelHookUrlSpecified
     Properties:
-      Subscription:
-        - Protocol: lambda
-          Endpoint: !GetAtt SendCWAlarmsToSlackLambda.Arn
+      TopicArn: !Ref HealthCheckNotificationSNSTopic
+      Protocol: lambda
+      Endpoint: !GetAtt SendCWAlarmsToSlackLambda.Arn
+
+  HealthCheckEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: UseEmailForAlarms
+    Properties:
+      TopicArn: !Ref HealthCheckNotificationSNSTopic
+      Protocol: email
+      Endpoint: !Ref AlarmsEmailAddress

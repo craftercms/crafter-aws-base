@@ -51,4 +51,4 @@ install-cluster-tools --aws-profile "$AWS_PROFILE" --aws-region "$AWS_DEFAULT_RE
 install-cluster-tools --aws-profile "$AWS_PROFILE" --aws-region "$AWS_DEFAULT_REGION" --aws-role "$EKS_CRAFTERCMS_SUPPORT_IAM_ROLE" --k8s-role support $CLUSTER_NAME $CLUSTER_ALIAS
 
 cecho "Synching up tools to S3..." "info"
-sync-cluster-tools --up
+sync-cluster-tools -p "$CLUSTER_TOOLS_AWS_PROFILE" -b "$CLUSTER_TOOLS_BUCKET" --up

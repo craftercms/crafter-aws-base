@@ -34,7 +34,7 @@ representing an identifier for the REGION. For example, if the client plans to c
 the file `config.us-west-2.sh`. If there's a single `REGION`, 
 you can leave it empty (`config.sh`).
 2. Open the config file and fill the properties appropiately. You can leave the ones that are auto-generated empty 
-and they will be filled by the scripts automatically.
+and they will be filled by the scripts automatically. `ALARMS_SLACK_CHANNEL_HOOK_URL` and `PAGER_DUTY_INTEGRATION_URL` are optional. When Slack is not configured, GuardDuty notifications are sent to `ALARMS_EMAIL_ADDRESS` instead.
 3. AWS_PROFILE should be the AWS profile used to access the resources of the AWS account of the client.
 4. Run `./scripts/regions/setup.sh` and follow the instructions. When being asked for the config.sh suffix, provide
 the `REGION` string mentioned aboved.
@@ -68,7 +68,7 @@ and they will be filled by the scripts automatically.
 5. If you don't already have them, request the mail properties from the Cloud Ops lead.
 6. `AUTHORING_DOMAIN_NAME` and `DELIVERY_DOMAIN_NAME` are the Route-53 records that point to the future Authoring and Delivery ALBs (you'll create them in a future step). Normally they 
 are `ENV-authoring.CLIENT_ID-(blue|green).net` and `ENV-delivery.CLIENT_ID-(blue|green).net`.
-6. If you don't already have them, request the `ALARMS_SLACK_CHANNEL_HOOK_URL` and `PAGER_DUTY_INTEGRATION_URL` from the Cloud Ops lead.
+6. `ALARMS_SLACK_CHANNEL_HOOK_URL` and `PAGER_DUTY_INTEGRATION_URL` are optional. When Slack is not configured, alarm notifications are sent to `ALARMS_EMAIL_ADDRESS` instead. Leave `PAGER_DUTY_INTEGRATION_URL` empty to skip PagerDuty notifications.
 7. Run the `./scripts/clusters/setup.sh` script and enter the environment's name when prompted.
 
 - Add the Crafter license under `./clusters/{AWS_REGION}/{CLUSTER_NAME}/kubernetes/gitops/apps/main/craftercms/resources/common/secrets/crafter.lic`.

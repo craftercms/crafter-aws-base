@@ -19,6 +19,8 @@ export K9S_VERSION=v0.50.18
 export UPGRADE_NODES_CRON='0 11 * * 0'
 # Required
 export UPGRADE_NODES_CRON_TZ='America/New_York'
+# Optional (default 5). Max parallel nodegroup upgrades in the weekly CronJob
+export UPGRADE_NODES_PARALLELISM=1
 # Leave always empty
 export AWS_PAGER=
 # Required
@@ -26,11 +28,11 @@ export AWS_PROFILE=
 # Required
 export AWS_DEFAULT_REGION=
 # Required
-export AWS_AZ_1=
+export AWS_AZ_1=${AWS_DEFAULT_REGION}a
 # Required
-export AWS_AZ_2=
+export AWS_AZ_2=${AWS_DEFAULT_REGION}b
 # Required
-export AWS_AZ_3=
+export AWS_AZ_3=${AWS_DEFAULT_REGION}c
 # Required
 export ACCOUNT_RESOURCES_REGION=$AWS_DEFAULT_REGION
 # Required
@@ -39,6 +41,10 @@ export ENVIRONMENT_RESOURCES_REGION=$AWS_DEFAULT_REGION
 export AWS_BACKUP_REGION=
 # Optional, specify for multi-region delivery
 export AWS_MAIN_CLUSTER_REGION=
+# Required
+export CLUSTER_TOOLS_AWS_PROFILE=crafter-cloud-infra
+# Required
+export CLUSTER_TOOLS_BUCKET=cloud-management-tools
 # Required. Authoring worker groups can be also used for standalone deployers
 export AUTHORING_WORKER_INSTANCE_TYPE=m6i.xlarge
 # Required
@@ -183,7 +189,7 @@ export DELIVERY_DOMAIN_NAME=
 export AUTHORING_HEALTHCHECK_PATH='/studio/api/2/monitoring/status.json?token='
 # Required. Add token= (with no value) to dynamically add a Crafter management token parameter
 export DELIVERY_HEALTHCHECK_PATH='/api/1/monitoring/status.json?token='
-# Required
+# Optional. When empty, alarm notifications are sent to ALARMS_EMAIL_ADDRESS instead
 export ALARMS_SLACK_CHANNEL_HOOK_URL=
-# Required
+# Optional
 export PAGER_DUTY_INTEGRATION_URL=

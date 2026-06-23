@@ -51,7 +51,7 @@ echo "--------------------------------------------------------------------------
 
 ./kubernetes/generate-upgrade-nodegroup-jobs-config.sh
 
-read -p "> Upgrade node group jobs config generated. Press enter to continue"
+read -p "> Upgrade node group job config verified. Press enter to continue"
 echo "--------------------------------------------------------------------------------"
 
 ./kubernetes/install-argocd.sh
