@@ -12,4 +12,8 @@ export AWS_PROFILE=
 # Required (use a no more than 5 letters acronym if possible)
 export CLIENT_ID=
 # Required
+export ALARMS_EMAIL_ADDRESS=alarm@craftersoftware.com
+# Optional. When empty, GuardDuty notifications are sent to ALARMS_EMAIL_ADDRESS instead
+export ALARMS_SLACK_CHANNEL_HOOK_URL=
+# Optional
 export PAGER_DUTY_INTEGRATION_URL=

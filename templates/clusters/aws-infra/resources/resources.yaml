@@ -46,6 +46,14 @@ Parameters:
   DeliveryInstanceCount:
     Type: String
     Default: '2'
+  BastionInstanceType:
+    Type: String
+    Default: t3.micro
+  BastionUsers:
+    Type: String
+    Default: 'alfonso steven sumer russ'
+    AllowedPattern: '^[a-z][a-z0-9_-]*( [a-z][a-z0-9_-]*)*$'
+    ConstraintDescription: 'Space-separated lowercase usernames starting with a letter, containing only letters, digits, underscores, and hyphens'
 
 Conditions:
   UseBackupRegion:
@@ -265,6 +273,113 @@ Resources:
       RouteTableIds: !Ref PrivateRouteTableIds
       ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
       VpcId: !Ref VpcId
+
+  BastionEICESecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: {{cluster_name}}-bastion-eice-sg
+      GroupDescription: Security group for EC2 Instance Connect Endpoint in {{cluster_name}}
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: 0
+          ToPort: 0
+          CidrIp: 0.0.0.0/0
+
+  BastionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: {{cluster_name}}-bastion-sg
+      GroupDescription: Security group for bastion host in {{cluster_name}} - SSH from EC2 Instance Connect Endpoint only
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !Ref BastionEICESecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: 0
+          ToPort: 0
+          CidrIp: 0.0.0.0/0
+
+  BastionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: {{cluster_name}}-bastion-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service: ec2.amazonaws.com
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  BastionInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: {{cluster_name}}-bastion-instance-profile
+      Roles:
+        - !Ref BastionRole
+
+  BastionInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Sub '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}'
+      InstanceType: !Ref BastionInstanceType
+      SubnetId: !Select [0, !Ref PrivateSubnetIds]
+      SecurityGroupIds:
+        - !Ref BastionSecurityGroup
+      IamInstanceProfile: !Ref BastionInstanceProfile
+      MetadataOptions:
+        HttpTokens: required
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            Encrypted: true
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -e
+          yum update -y
+          yum install -y ec2-instance-connect
+          for user in ${BastionUsers}; do
+            username=$(echo "$user" | tr '[:upper:]' '[:lower:]')
+            id "$username" >/dev/null 2>&1 || useradd -m -s /bin/bash "$username"
+            passwd -l "$username" || true
+            mkdir -p "/home/$username/.ssh"
+            chmod 700 "/home/$username/.ssh"
+            chown "$username:$username" "/home/$username/.ssh"
+            echo "$username ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/$username"
+            chmod 440 "/etc/sudoers.d/$username"
+          done
+          sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+          sed -i 's/^#\?ChallengeResponseAuthentication.*/ChallengeResponseAuthentication no/' /etc/ssh/sshd_config
+          sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+          systemctl restart sshd
+      Tags:
+        - Key: Name
+          Value: {{cluster_name}}-bastion
+        - Key: craftercms:environment
+          Value: {{environment}}
+        - Key: craftercms:prod
+          Value: {{prod_env}}
+
+  BastionInstanceConnectEndpoint:
+    Type: AWS::EC2::InstanceConnectEndpoint
+    Properties:
+      SubnetId: !Select [0, !Ref PrivateSubnetIds]
+      SecurityGroupIds:
+        - !Ref BastionEICESecurityGroup
+      Tags:
+        - Key: Name
+          Value: {{cluster_name}}-bastion-eice
+        - Key: craftercms:environment
+          Value: {{environment}}
+        - Key: craftercms:prod
+          Value: {{prod_env}}
         
   OpenSearchSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -286,6 +401,15 @@ Resources:
           FromPort: 0
           ToPort: 0
           CidrIp: 0.0.0.0/0
+
+  BastionOpenSearchIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref OpenSearchSecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      SourceSecurityGroupId: !Ref BastionSecurityGroup
 
   OpenSearchDomain:
     Type: AWS::OpenSearchService::Domain
@@ -533,3 +657,9 @@ Outputs:
     Value: !GetAtt DeliveryFrontendSecurityGroup.GroupId
   DeliveryNodeGroupSecurityGroup:
     Value: !GetAtt DeliveryNodeGroupSecurityGroup.GroupId
+  BastionInstanceId:
+    Value: !Ref BastionInstance
+  BastionPrivateIp:
+    Value: !GetAtt BastionInstance.PrivateIp
+  BastionInstanceConnectEndpointId:
+    Value: !GetAtt BastionInstanceConnectEndpoint.Id

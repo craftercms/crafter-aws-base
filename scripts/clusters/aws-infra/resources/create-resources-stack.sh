@@ -55,8 +55,9 @@ if [ -z "$healthchecks_stack" ] || [ "$healthchecks_stack" == "null" ]; then
             ParameterKey=AuthoringHealthcheckPath,ParameterValue=${AUTHORING_HEALTHCHECK_PATH/token=/"token=$CRAFTER_MANAGEMENT_TOKEN"} \
             ParameterKey=DeliveryHealthcheckHostname,ParameterValue=$DELIVERY_DOMAIN_NAME \
             ParameterKey=DeliveryHealthcheckPath,ParameterValue=${DELIVERY_HEALTHCHECK_PATH/token=/"token=$CRAFTER_MANAGEMENT_TOKEN"} \
-            ParameterKey=AlarmsSlackChannelHookUrl,ParameterValue=$ALARMS_SLACK_CHANNEL_HOOK_URL \
-            ParameterKey=PagerDutyIntegrationUrl,ParameterValue=$PAGER_DUTY_INTEGRATION_URL
+            ParameterKey=AlarmsSlackChannelHookUrl,ParameterValue=${ALARMS_SLACK_CHANNEL_HOOK_URL:-} \
+            ParameterKey=AlarmsEmailAddress,ParameterValue=$ALARMS_EMAIL_ADDRESS \
+            ParameterKey=PagerDutyIntegrationUrl,ParameterValue=${PAGER_DUTY_INTEGRATION_URL:-}
 
     else
         aws cloudformation create-stack --region 'us-east-1' --stack-name $HEALTHCHECKS_STACK_NAME \
@@ -65,8 +66,9 @@ if [ -z "$healthchecks_stack" ] || [ "$healthchecks_stack" == "null" ]; then
             ParameterKey=AuthoringHealthcheckPath,ParameterValue=${AUTHORING_HEALTHCHECK_PATH/token=/"token=$CRAFTER_MANAGEMENT_TOKEN"} \
             ParameterKey=DeliveryHealthcheckHostname,ParameterValue=$DELIVERY_DOMAIN_NAME \
             ParameterKey=DeliveryHealthcheckPath,ParameterValue=${DELIVERY_HEALTHCHECK_PATH/token=/"token=$CRAFTER_MANAGEMENT_TOKEN"} \
-            ParameterKey=AlarmsSlackChannelHookUrl,ParameterValue=$ALARMS_SLACK_CHANNEL_HOOK_URL \
-            ParameterKey=PagerDutyIntegrationUrl,ParameterValue=$PAGER_DUTY_INTEGRATION_URL
+            ParameterKey=AlarmsSlackChannelHookUrl,ParameterValue=${ALARMS_SLACK_CHANNEL_HOOK_URL:-} \
+            ParameterKey=AlarmsEmailAddress,ParameterValue=$ALARMS_EMAIL_ADDRESS \
+            ParameterKey=PagerDutyIntegrationUrl,ParameterValue=${PAGER_DUTY_INTEGRATION_URL:-}
     fi
 
     cecho "Waiting for resources stack to be created..." "info"
@@ -79,8 +81,9 @@ if [ -z "$alarms_stack" ] || [ "$alarms_stack" == "null" ]; then
     aws cloudformation create-stack --region $AWS_DEFAULT_REGION --stack-name $ALARMS_STACK_NAME \
         --capabilities CAPABILITY_NAMED_IAM --template-body file://$ALARMS_STACK_CONFIG_FILE --parameters \
         ParameterKey=CloudWatchAlarmsEnabled,ParameterValue=$ENABLE_CLOUDWATCH_ALARMS \
-        ParameterKey=AlarmsSlackChannelHookUrl,ParameterValue=$ALARMS_SLACK_CHANNEL_HOOK_URL \
-        ParameterKey=PagerDutyIntegrationUrl,ParameterValue=$PAGER_DUTY_INTEGRATION_URL
+        ParameterKey=AlarmsSlackChannelHookUrl,ParameterValue=${ALARMS_SLACK_CHANNEL_HOOK_URL:-} \
+        ParameterKey=AlarmsEmailAddress,ParameterValue=$ALARMS_EMAIL_ADDRESS \
+        ParameterKey=PagerDutyIntegrationUrl,ParameterValue=${PAGER_DUTY_INTEGRATION_URL:-}
 
     cecho "Waiting for alarms stack to be created..." "info"
 else

@@ -8,41 +8,16 @@ PRGDIR=$(cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd)
 
 UPGRADE_NODEGROUP_JOBS_CONFIG_FILE="$CLUSTER_HOME/kubernetes/gitops/apps/admin/jobs/upgrade-nodegroups.yaml"
 
-cecho "Generating Kubernetes CronJob config to upgrade nodegroups of cluster $CLUSTER_NAME..." "info"
+cecho "Checking nodegroup upgrade CronJob config for cluster $CLUSTER_NAME..." "info"
 
-truncate -s 0 "$UPGRADE_NODEGROUP_JOBS_CONFIG_FILE"
+if [ ! -f "$UPGRADE_NODEGROUP_JOBS_CONFIG_FILE" ]; then
+  cecho "Upgrade nodegroups config not found at $UPGRADE_NODEGROUP_JOBS_CONFIG_FILE" "error"
+  exit 1
+fi
 
-eksctl get nodegroups --region="$AWS_DEFAULT_REGION" --cluster "$CLUSTER_NAME"  -o json | jq -r '.[].Name' | while read name; do
-cecho "Generating upgrade CronJob config for $name..." "info"
+if grep -q '{{[^}]\+}}' "$UPGRADE_NODEGROUP_JOBS_CONFIG_FILE"; then
+  cecho "Upgrade nodegroups config still contains unresolved template placeholders" "error"
+  exit 1
+fi
 
-cat <<EOF >>$UPGRADE_NODEGROUP_JOBS_CONFIG_FILE
-apiVersion: batch/v1
-kind: CronJob
-metadata:
-  name: upgrade-$name
-spec:
-  schedule: "$UPGRADE_NODES_CRON"
-  timeZone: "$UPGRADE_NODES_CRON_TZ"
-  concurrencyPolicy: Forbid
-  startingDeadlineSeconds: 300
-  failedJobsHistoryLimit: 1
-  successfulJobsHistoryLimit: 1
-  jobTemplate:
-    spec:
-      # Cleanup job after 8 hours
-      ttlSecondsAfterFinished: 28800
-      parallelism: 1
-      completions: 1
-      backoffLimit: 0
-      template:
-        spec:
-          serviceAccountName: upgrade-nodegroups
-          containers:
-            - name: eksctl
-              image: weaveworks/eksctl:latest
-              imagePullPolicy: Always
-              args: ["upgrade", "nodegroup", "--cluster=$CLUSTER_NAME", "--name=$name"]
-          restartPolicy: Never
----
-EOF
-done
+cecho "Nodegroup upgrade CronJob config is present (dynamic nodegroup discovery at runtime)." "info"

@@ -9,6 +9,9 @@ metadata:
     craftercms:environment: "{{environment}}"
     craftercms:prod: "{{prod_env}}"
 
+autoModeConfig:
+  enabled: false
+
 availabilityZones: ["{{aws_az_1}}", "{{aws_az_2}}", "{{aws_az_3}}"]
 
 vpc:
@@ -67,6 +70,11 @@ iam:
               - eks:DescribeClusterVersions
             Resource:
               - "arn:aws:eks:{{aws_region}}:{{aws_account_id}}:*"
+          - Effect: Allow
+            Action:
+              - sns:Publish
+            Resource:
+              - "arn:aws:sns:{{aws_region}}:{{aws_account_id}}:{{cluster_name}}-UpgradeReportSNSTopic"
     - metadata:
         name: cloudwatch-addons
         namespace: amazon-cloudwatch

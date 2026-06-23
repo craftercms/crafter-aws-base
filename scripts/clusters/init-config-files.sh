@@ -113,6 +113,10 @@ find . -type f ! -name setup.sh -exec sed -i "s~{{alarms_email_address}}~${ALARM
 find . -type f ! -name setup.sh -exec sed -i "s/{{argocd_project}}/${ARGOCD_PROJECT}/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s~{{delivery_domain_name}}~${DELIVERY_DOMAIN_NAME}~g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s~{{prod_env}}~$prod_env~g" {} \;
+find . -type f ! -name setup.sh -exec sed -i "s~{{upgrade_nodes_cron}}~${UPGRADE_NODES_CRON}~g" {} \;
+find . -type f ! -name setup.sh -exec sed -i "s~{{upgrade_nodes_cron_tz}}~${UPGRADE_NODES_CRON_TZ}~g" {} \;
+find . -type f ! -name setup.sh -exec sed -i "s/{{upgrade_nodes_parallelism}}/${UPGRADE_NODES_PARALLELISM:-1}/g" {} \;
+find . -type f ! -name setup.sh -exec sed -i "s/{{eksctl_version}}/${EKSCTL_VERSION}/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s~{{cluster_logs_s3_bucket_name}}~${CLUSTER_LOGS_S3_BUCKET_NAME}~g" {} \;
 # S3 Log Forwarding Config
 # find . -type f ! -name setup.sh -exec sed -i "s~{{cluster_logs_s3_bucket_name}}~${CLUSTER_LOGS_S3_BUCKET_NAME}~g" {} \;

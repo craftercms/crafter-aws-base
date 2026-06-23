@@ -1,0 +1,213 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: upgrade-nodegroups-script
+data:
+  upgrade-nodegroups.sh: |
+    #!/usr/bin/env bash
+    set -Eeuo pipefail
+
+    PARALLELISM="${PARALLELISM:-1}"
+    if ! [[ "$PARALLELISM" =~ ^[1-9][0-9]*$ ]]; then
+      echo "PARALLELISM must be a positive integer, got: ${PARALLELISM}" >&2
+      exit 1
+    fi
+
+    RESULTS_DIR="$(mktemp -d)"
+    NOTIFIED_ON_ERROR=0
+
+    send_notification() {
+      local status="$1"
+      local body="$2"
+      if [[ -z "${SNS_TOPIC_ARN:-}" || "${SNS_TOPIC_ARN}" == "null" ]]; then
+        echo "SNS topic not configured; skipping notification (status: ${status})"
+        return 0
+      fi
+      aws sns publish \
+        --region "$AWS_REGION" \
+        --topic-arn "$SNS_TOPIC_ARN" \
+        --subject "Nodegroup upgrade - ${CLUSTER_NAME} - ${status}" \
+        --message "$body"
+    }
+
+    on_error() {
+      local exit_code=$?
+      if [[ $NOTIFIED_ON_ERROR -eq 1 ]]; then
+        exit "$exit_code"
+      fi
+      NOTIFIED_ON_ERROR=1
+      local report="Weekly nodegroup upgrade failed for cluster ${CLUSTER_NAME:-unknown}: unexpected error (exit ${exit_code}) at line ${BASH_LINENO[0]:-unknown}."
+      echo "$report" >&2
+      send_notification "failure" "$report" || true
+      exit "$exit_code"
+    }
+
+    trap 'rm -rf "$RESULTS_DIR"' EXIT
+    trap on_error ERR
+
+    export PATH="/opt/eksctl/bin:${PATH}"
+
+    install_tools() {
+      dnf install -y -q aws-cli jq findutils
+    }
+
+    upgrade_nodegroup() {
+      local nodegroup="$1"
+      echo "Starting upgrade for nodegroup: ${nodegroup}"
+      if eksctl upgrade nodegroup \
+        --cluster "$CLUSTER_NAME" \
+        --name "$nodegroup" \
+        --region "$AWS_REGION"; then
+        echo "OK" >"${RESULTS_DIR}/${nodegroup}"
+      else
+        echo "FAIL" >"${RESULTS_DIR}/${nodegroup}"
+      fi
+    }
+
+    export -f upgrade_nodegroup
+    export CLUSTER_NAME AWS_REGION RESULTS_DIR
+
+    install_tools
+
+    mapfile -t NODEGROUPS < <(
+      eksctl get nodegroup \
+        --cluster "$CLUSTER_NAME" \
+        --region "$AWS_REGION" \
+        -o json | jq -r '.[] | select(.Type == "managed") | .Name'
+    )
+
+    if [[ ${#NODEGROUPS[@]} -eq 0 || -z "${NODEGROUPS[0]:-}" ]]; then
+      report="Weekly nodegroup upgrade failed for cluster ${CLUSTER_NAME}: no managed nodegroups found."
+      echo "$report"
+      NOTIFIED_ON_ERROR=1
+      send_notification "failure" "$report" || true
+      exit 1
+    fi
+
+    echo "Managed nodegroups to upgrade:"
+    printf '  - %s\n' "${NODEGROUPS[@]}"
+
+    printf '%s\n' "${NODEGROUPS[@]}" | xargs -n1 -P"${PARALLELISM}" bash -c 'upgrade_nodegroup "$@"' _
+
+    failures=()
+    successes=()
+    for nodegroup in "${NODEGROUPS[@]}"; do
+      if [[ ! -f "${RESULTS_DIR}/${nodegroup}" ]]; then
+        failures+=("${nodegroup}")
+        continue
+      fi
+      if [[ "$(cat "${RESULTS_DIR}/${nodegroup}")" == "FAIL" ]]; then
+        failures+=("${nodegroup}")
+      else
+        successes+=("${nodegroup}")
+      fi
+    done
+
+    report="Weekly nodegroup upgrade report for cluster ${CLUSTER_NAME}."
+    report+=$(printf '\n\nNodegroups upgraded successfully (%s):' "${#successes[@]}")
+    if [[ ${#successes[@]} -gt 0 ]]; then
+      report+=$(printf '\n  - %s' "${successes[@]}")
+    else
+      report+=$'\n  (none)'
+    fi
+    report+=$(printf '\n\nNodegroups that failed (%s):' "${#failures[@]}")
+    if [[ ${#failures[@]} -gt 0 ]]; then
+      report+=$(printf '\n  - %s' "${failures[@]}")
+    else
+      report+=$'\n  (none)'
+    fi
+
+    echo "$report"
+
+    if [[ ${#failures[@]} -gt 0 ]]; then
+      NOTIFIED_ON_ERROR=1
+      send_notification "failure" "$report" || true
+      exit 1
+    fi
+
+    send_notification "success" "$report" || true
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: upgrade-nodegroups
+spec:
+  schedule: "{{upgrade_nodes_cron}}"
+  timeZone: "{{upgrade_nodes_cron_tz}}"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  failedJobsHistoryLimit: 1
+  successfulJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 28800
+      activeDeadlineSeconds: 7200
+      parallelism: 1
+      completions: 1
+      backoffLimit: 0
+      template:
+        spec:
+          serviceAccountName: upgrade-nodegroups
+          restartPolicy: Never
+          initContainers:
+            # Official eksctl image (public.ecr.aws/eksctl/eksctl) is distroless (only /eksctl, no shell).
+            # This orchestration script needs bash + aws-cli + jq, so stage the pinned eksctl binary here.
+            # A custom image with all tools pre-baked could drop initContainer/runtime dnf and enable
+            # runAsNonRoot/readOnlyRootFilesystem in a follow-up.
+            - name: stage-eksctl
+              image: public.ecr.aws/docker/library/alpine:3.19
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -ec
+                - |
+                  apk add --no-cache curl
+                  curl -fsSL "https://github.com/weaveworks/eksctl/releases/download/${EKSCTL_VERSION}/eksctl_Linux_amd64.tar.gz" \
+                    | tar xz -C /opt/eksctl/bin eksctl
+                  chmod +x /opt/eksctl/bin/eksctl
+                  /opt/eksctl/bin/eksctl version
+              env:
+                - name: EKSCTL_VERSION
+                  value: "{{eksctl_version}}"
+              volumeMounts:
+                - name: eksctl-bin
+                  mountPath: /opt/eksctl/bin
+          containers:
+            - name: upgrade-nodegroups
+              image: public.ecr.aws/amazonlinux/amazonlinux:2023
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/bash
+                - /scripts/upgrade-nodegroups.sh
+              env:
+                - name: CLUSTER_NAME
+                  value: "{{cluster_name}}"
+                - name: AWS_REGION
+                  value: "{{aws_region}}"
+                - name: PARALLELISM
+                  value: "{{upgrade_nodes_parallelism}}"
+                - name: SNS_TOPIC_ARN
+                  value: "{{nodegroup_upgrade_sns_topic_arn}}"
+                - name: AWS_DEFAULT_REGION
+                  value: "{{aws_region}}"
+              resources:
+                requests:
+                  cpu: 500m
+                  memory: 1Gi
+                limits:
+                  cpu: "1"
+                  memory: 2Gi
+              volumeMounts:
+                - name: upgrade-nodegroups-script
+                  mountPath: /scripts
+                  readOnly: true
+                - name: eksctl-bin
+                  mountPath: /opt/eksctl/bin
+                  readOnly: true
+          volumes:
+            - name: upgrade-nodegroups-script
+              configMap:
+                name: upgrade-nodegroups-script
+                defaultMode: 0755
+            - name: eksctl-bin
+              emptyDir: {}
