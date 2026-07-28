@@ -1,0 +1,54 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Common notification SNS topic for the {{cluster_name}} cluster, reusable across notification jobs
+
+Parameters:
+  NotificationsEmailAddress:
+    Type: String
+    Default: 'cloud-ops@craftercms.com'
+
+Conditions:
+  EmailSubscriptionEnabled:
+    !Not [!Equals [!Ref NotificationsEmailAddress, '']]
+
+Resources:
+  NotificationsSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: "{{cluster_name}}-notifications"
+      DisplayName: "{{cluster_name}} notifications"
+
+  NotificationsEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: EmailSubscriptionEnabled
+    Properties:
+      TopicArn: !Ref NotificationsSNSTopic
+      Protocol: email
+      Endpoint: !Ref NotificationsEmailAddress
+
+  NotificationsSNSTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref NotificationsSNSTopic
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowSameAccountServicePublish
+            Effect: Allow
+            Principal:
+              Service:
+                - events.amazonaws.com
+                - cloudwatch.amazonaws.com
+                - lambda.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref NotificationsSNSTopic
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+
+Outputs:
+  NotificationsSNSTopicArn:
+    Description: ARN of the common notification SNS topic, reusable by future notification jobs
+    Value: !Ref NotificationsSNSTopic
+    Export:
+      Name: "{{cluster_name}}-NotificationsSNSTopicArn"

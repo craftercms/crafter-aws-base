@@ -454,6 +454,18 @@ spec:
               value: "{{enable_backup_buckets_creation}}"
             - name: ENABLE_S3_ORIGIN_FAILOVER
               value: "{{enable_s3_origin_failover}}"
+            - name: ENABLE_WAF
+              value: "{{enable_waf}}"
+            - name: WEB_ACL_ARN
+              value: "{{web_acl_arn}}"
+            - name: WAF_RATE_LIMIT
+              value: "{{waf_rate_limit}}"
+            - name: ENABLE_WAF_BOT_CONTROL
+              value: "{{enable_waf_bot_control}}"
+            - name: WAF_ALLOWED_IP_ADDRESSES
+              value: "{{waf_allowed_ip_addresses}}"
+            - name: WAF_BLOCKED_IP_ADDRESSES
+              value: "{{waf_blocked_ip_addresses}}"
             - name: DISABLE_BUCKET_CLEAR_ON_TARGET_DELETION
               value: "{{disable_bucket_clear_on_target_deletion}}"
             - name: DISABLE_CLOUDFORMATION_DELETION_ON_TARGET_DELETION

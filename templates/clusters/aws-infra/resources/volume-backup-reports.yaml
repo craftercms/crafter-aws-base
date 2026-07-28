@@ -1,0 +1,362 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Weekly EC2 Data Lifecycle Manager and authoring-data volume backup checks for the {{cluster_name}} cluster
+
+Parameters:
+  VolumeBackupReportsEnabled:
+    Type: String
+    Default: true
+    AllowedValues:
+      - true
+      - false
+  BackupDaysToVerify:
+    Type: Number
+    Default: 7
+    MinValue: 1
+    MaxValue: 14
+
+Conditions:
+  IsVolumeBackupReportsEnabled:
+    !Equals [!Ref VolumeBackupReportsEnabled, true]
+
+Resources:
+  WeeklyVolumeBackupReportLambdaRole:
+    Type: AWS::IAM::Role
+    Condition: IsVolumeBackupReportsEnabled
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service: lambda.amazonaws.com
+      Policies:
+        - PolicyName: WeeklyVolumeBackupReportLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+              - Effect: Allow
+                Action:
+                  - dlm:GetLifecyclePolicies
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeVolumes
+                  - ec2:DescribeSnapshots
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !ImportValue '{{cluster_name}}-NotificationsSNSTopicArn'
+
+  WeeklyVolumeBackupReportLambda:
+    Type: AWS::Lambda::Function
+    Condition: IsVolumeBackupReportsEnabled
+    Properties:
+      Tags:
+        - Key: craftercms:environment
+          Value: {{environment}}
+        - Key: craftercms:prod
+          Value: {{prod_env}}
+      FunctionName: "{{cluster_name}}-weekly-volume-backup-report-lambda"
+      Runtime: python3.13
+      Handler: index.handler
+      Timeout: 120
+      Role: !GetAtt WeeklyVolumeBackupReportLambdaRole.Arn
+      Environment:
+        Variables:
+          CLUSTER_NAME: "{{cluster_name}}"
+          DLM_POLICY_DESCRIPTION: "{{cluster_name}} Kubernetes Volume Backups"
+          AUTHORING_DATA_VOLUME_NAME: "{{cluster_name}}-authoring-data"
+          KUBERNETES_CLUSTER_TAG_KEY: "kubernetes.io/cluster/{{cluster_name}}"
+          SNS_TOPIC_ARN: !ImportValue '{{cluster_name}}-NotificationsSNSTopicArn'
+          BACKUP_DAYS_TO_VERIFY: !Ref BackupDaysToVerify
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          import os
+          from datetime import datetime, timedelta, timezone
+
+          import boto3
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          dlm_client = boto3.client('dlm')
+          ec2_client = boto3.client('ec2')
+          sns_client = boto3.client('sns')
+
+          CLUSTER_NAME = os.environ['CLUSTER_NAME']
+          DLM_POLICY_DESCRIPTION = os.environ['DLM_POLICY_DESCRIPTION']
+          AUTHORING_DATA_VOLUME_NAME = os.environ['AUTHORING_DATA_VOLUME_NAME']
+          KUBERNETES_CLUSTER_TAG_KEY = os.environ['KUBERNETES_CLUSTER_TAG_KEY']
+          SNS_TOPIC_ARN = os.environ['SNS_TOPIC_ARN']
+          BACKUP_DAYS_TO_VERIFY = int(os.environ.get('BACKUP_DAYS_TO_VERIFY', '7'))
+
+
+          def _paginate(method, result_key, **kwargs):
+              items = []
+              next_token = None
+              while True:
+                  call_kwargs = dict(kwargs)
+                  if next_token:
+                      call_kwargs['NextToken'] = next_token
+                  response = method(**call_kwargs)
+                  items.extend(response.get(result_key, []))
+                  next_token = response.get('NextToken')
+                  if not next_token:
+                      break
+              return items
+
+
+          def find_dlm_policy():
+              policies = _paginate(
+                  dlm_client.get_lifecycle_policies,
+                  'Policies',
+                  ResourceTypes=['VOLUME'],
+              )
+              for policy in policies:
+                  if policy.get('Description') == DLM_POLICY_DESCRIPTION:
+                      return policy
+              return None
+
+
+          def find_authoring_data_volumes():
+              # StatefulSet PVCs are named {{cluster}}-authoring-data-0, -1, ...
+              return _paginate(
+                  ec2_client.describe_volumes,
+                  'Volumes',
+                  Filters=[{'Name': 'tag:Name', 'Values': [f'{AUTHORING_DATA_VOLUME_NAME}*']}],
+              )
+
+
+          def volume_has_cluster_tag(volume):
+              for tag in volume.get('Tags', []):
+                  if tag.get('Key') == KUBERNETES_CLUSTER_TAG_KEY and tag.get('Value') == 'owned':
+                      return True
+              return False
+
+
+          def get_completed_snapshot_dates(volume_id):
+              snapshots = _paginate(
+                  ec2_client.describe_snapshots,
+                  'Snapshots',
+                  OwnerIds=['self'],
+                  Filters=[{'Name': 'volume-id', 'Values': [volume_id]}],
+              )
+              dates = set()
+              for snapshot in snapshots:
+                  if snapshot.get('State') == 'completed':
+                      dates.add(snapshot['StartTime'].date())
+              return dates
+
+
+          def missing_backup_days(snapshot_dates, created_at=None):
+              today = datetime.now(timezone.utc).date()
+              created_date = created_at.date() if created_at else None
+              missing = []
+              for days_ago in range(1, BACKUP_DAYS_TO_VERIFY + 1):
+                  day = today - timedelta(days=days_ago)
+                  if created_date and day < created_date:
+                      continue
+                  if day not in snapshot_dates:
+                      missing.append(day.isoformat())
+              return missing
+
+
+          def check_dlm_policy():
+              try:
+                  policy = find_dlm_policy()
+              except Exception as exc:
+                  logger.exception('Failed to list DLM policies')
+                  return {
+                      'ok': False,
+                      'findings': [],
+                      'errors': [f"Failed to list DLM policies: {exc}"],
+                  }
+              if not policy:
+                  return {
+                      'ok': False,
+                      'findings': [f"DLM policy not found: `{DLM_POLICY_DESCRIPTION}`"],
+                      'errors': [],
+                  }
+              state = policy.get('State', 'UNKNOWN')
+              if state != 'ENABLED':
+                  return {
+                      'ok': False,
+                      'findings': [f"DLM policy `{DLM_POLICY_DESCRIPTION}` state is `{state}` (expected ENABLED)"],
+                      'errors': [],
+                  }
+              return {'ok': True, 'findings': [], 'errors': []}
+
+
+          def check_authoring_data_volumes():
+              try:
+                  volumes = find_authoring_data_volumes()
+              except Exception as exc:
+                  logger.exception('Failed to describe authoring-data volumes')
+                  return {
+                      'ok': False,
+                      'findings': [],
+                      'errors': [f"Failed to describe volumes: {exc}"],
+                      'volumes': [],
+                  }
+              if not volumes:
+                  return {
+                      'ok': False,
+                      'findings': [f"No volume found with Name tag `{AUTHORING_DATA_VOLUME_NAME}`"],
+                      'errors': [],
+                      'volumes': [],
+                  }
+
+              findings = []
+              checked_volumes = []
+              for volume in volumes:
+                  volume_id = volume['VolumeId']
+                  checked_volumes.append(volume_id)
+                  if not volume_has_cluster_tag(volume):
+                      findings.append(
+                          f"Volume `{volume_id}` (`{AUTHORING_DATA_VOLUME_NAME}`) is missing tag "
+                          f"`{KUBERNETES_CLUSTER_TAG_KEY}=owned`"
+                      )
+                  try:
+                      missing_days = missing_backup_days(
+                          get_completed_snapshot_dates(volume_id), volume.get('CreateTime')
+                      )
+                  except Exception as exc:
+                      logger.exception('Failed to list snapshots for %s', volume_id)
+                      return {
+                          'ok': False,
+                          'findings': findings,
+                          'errors': [f"Failed to list snapshots for `{volume_id}`: {exc}"],
+                          'volumes': checked_volumes,
+                      }
+                  if missing_days:
+                      findings.append(
+                          f"Volume `{volume_id}` is missing completed snapshots for "
+                          f"{len(missing_days)} of the last {BACKUP_DAYS_TO_VERIFY} day(s): "
+                          f"{', '.join(missing_days)}"
+                      )
+
+              return {
+                  'ok': not findings,
+                  'findings': findings,
+                  'errors': [],
+                  'volumes': checked_volumes,
+              }
+
+
+          def build_report(dlm_result, volume_result):
+              now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
+              errors = dlm_result.get('errors', []) + volume_result.get('errors', [])
+              findings = dlm_result.get('findings', []) + volume_result.get('findings', [])
+              has_errors = bool(errors)
+              has_findings = bool(findings)
+
+              if has_errors:
+                  subject = f"Volume Backup Report - {CLUSTER_NAME} (incomplete)"
+                  lines = [
+                      'Weekly Volume Backup Report',
+                      '==================================================',
+                      f"Cluster: {CLUSTER_NAME}",
+                      f"Time:    {now}",
+                      '',
+                      'One or more backup checks could not complete. Results may be incomplete.',
+                      '',
+                  ]
+                  for err in errors:
+                      lines.append(f"   Error: {err}")
+                  lines.append('')
+              elif has_findings:
+                  subject = f"Volume Backup Report - {CLUSTER_NAME}"
+                  lines = [
+                      'Weekly Volume Backup Report',
+                      '==================================================',
+                      f"Cluster: {CLUSTER_NAME}",
+                      f"Time:    {now}",
+                      '',
+                      'ACTION REQUIRED - the following volume backup issues were found:',
+                      '',
+                  ]
+                  for finding in findings:
+                      lines.append(f"   - {finding}")
+                  lines.append('')
+              else:
+                  subject = f"Volume Backup Report - {CLUSTER_NAME} (healthy)"
+                  volume_ids = volume_result.get('volumes', [])
+                  lines = [
+                      'Weekly Volume Backup Report',
+                      '==================================================',
+                      f"Cluster: {CLUSTER_NAME}",
+                      f"Time:    {now}",
+                      '',
+                      'DLM policy is enabled and authoring-data volume backups look healthy.',
+                      f"Checked volume(s): {', '.join(volume_ids) if volume_ids else 'none'}",
+                      f"Verified completed snapshots for the last {BACKUP_DAYS_TO_VERIFY} day(s).",
+                      '',
+                      '==================================================',
+                      'This is an automated weekly volume backup check.',
+                  ]
+                  return subject, '\n'.join(lines)
+
+              lines += [
+                  '==================================================',
+                  'This is an automated weekly volume backup check.',
+              ]
+              return subject, '\n'.join(lines)
+
+
+          def handler(event, context):
+              logger.info('Running weekly volume backup report for cluster %s', CLUSTER_NAME)
+              dlm_result = check_dlm_policy()
+              volume_result = check_authoring_data_volumes()
+              subject, body = build_report(dlm_result, volume_result)
+              sns_client.publish(
+                  TopicArn=SNS_TOPIC_ARN,
+                  Subject=subject[:100],
+                  Message=body,
+              )
+              logger.info('Published volume backup report: %s', subject)
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps({
+                      'cluster': CLUSTER_NAME,
+                      'dlmHealthy': dlm_result.get('ok', False),
+                      'volumeBackupHealthy': volume_result.get('ok', False),
+                      'findings': dlm_result.get('findings', []) + volume_result.get('findings', []),
+                      'checkErrors': dlm_result.get('errors', []) + volume_result.get('errors', []),
+                  }),
+              }
+
+  WeeklyVolumeBackupReportLambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: IsVolumeBackupReportsEnabled
+    DependsOn: WeeklyVolumeBackupReportScheduleRule
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref WeeklyVolumeBackupReportLambda
+      Principal: events.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/{{cluster_name}}-WeeklyVolumeBackupReportSchedule"
+
+  WeeklyVolumeBackupReportScheduleRule:
+    Type: AWS::Events::Rule
+    Condition: IsVolumeBackupReportsEnabled
+    Properties:
+      Name: "{{cluster_name}}-WeeklyVolumeBackupReportSchedule"
+      Description: Weekly DLM and authoring-data volume backup check for cluster {{cluster_name}}
+      ScheduleExpression: cron(0 10 ? * MON *)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt WeeklyVolumeBackupReportLambda.Arn
+          Id: WeeklyVolumeBackupReportLambdaTarget
+
+Outputs:
+  WeeklyVolumeBackupReportLambdaArn:
+    Condition: IsVolumeBackupReportsEnabled
+    Value: !GetAtt WeeklyVolumeBackupReportLambda.Arn

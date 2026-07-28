@@ -171,6 +171,27 @@ iam:
             Action:
               - 'lambda:InvokeFunction'
             Resource: "arn:aws:lambda:{{aws_region}}:{{aws_account_id}}:function:{{cluster_name}}-s3-backup-bucket-lambda"
+          - Effect: Allow
+            Action:
+              - 'wafv2:CreateWebACL'
+              - 'wafv2:UpdateWebACL'
+              - 'wafv2:DeleteWebACL'
+              - 'wafv2:GetWebACL'
+              - 'wafv2:CreateIPSet'
+              - 'wafv2:UpdateIPSet'
+              - 'wafv2:DeleteIPSet'
+              - 'wafv2:GetIPSet'
+              - 'wafv2:TagResource'
+              - 'wafv2:UntagResource'
+              - 'wafv2:ListTagsForResource'
+              - 'wafv2:GetManagedRuleSet'
+            Resource:
+              - "arn:aws:wafv2:us-east-1:{{aws_account_id}}:global/webacl/*"
+              - "arn:aws:wafv2:us-east-1:{{aws_account_id}}:global/ipset/*"
+              - "arn:aws:wafv2:us-east-1:{{aws_account_id}}:global/managedruleset/*/*"
+              - "arn:aws:wafv2:{{aws_region}}:{{aws_account_id}}:regional/webacl/*"
+              - "arn:aws:wafv2:{{aws_region}}:{{aws_account_id}}:regional/ipset/*"
+              - "arn:aws:wafv2:{{aws_region}}:{{aws_account_id}}:regional/managedruleset/*/*"
     - metadata:
         name: delivery
         namespace: craftercms

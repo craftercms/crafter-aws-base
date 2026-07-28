@@ -43,9 +43,6 @@ Parameters:
   BackupRegionBucketNamePrefix:
     Type: String
     Default: ''
-  DeliveryInstanceCount:
-    Type: String
-    Default: '2'
   BastionInstanceType:
     Type: String
     Default: t3.micro
@@ -190,10 +187,28 @@ Resources:
       Scope:
         "REGIONAL"
       Rules: 
+        - Name: layer-7-anti-ddos
+          Priority: 0
+          OverrideAction:
+            None: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesAntiDDoSRuleSet
+              ManagedRuleGroupConfigs:
+                - AWSManagedRulesAntiDDoSRuleSet:
+                    SensitivityToBlock: LOW
+                    ClientSideActionConfig:
+                      Challenge:
+                        UsageOfAction: DISABLED
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: layer-7-anti-ddos
+            SampledRequestsEnabled: true
         - Name: bot-control-rules
           OverrideAction:
             None: {}
-          Priority: 0
+          Priority: 1
           Statement:
             ManagedRuleGroupStatement:
               VendorName: AWS
@@ -205,16 +220,60 @@ Resources:
               RuleActionOverrides:
                 - Name: CategoryMonitoring
                   ActionToUse:
-                    Allow: {}
+                    Count: {}
                 - Name: SignalNonBrowserUserAgent
                   ActionToUse:
-                    Allow: {}
+                    Count: {}
                 - Name: CategoryHttpLibrary
                   ActionToUse:
-                    Allow: {}
+                    Count: {}
           VisibilityConfig:
             CloudWatchMetricsEnabled: true
             MetricName: bot-control-rules
+            SampledRequestsEnabled: true
+        - Name: global-rate-limit
+          Priority: 2
+          Action:
+            Count: {}
+          Statement:
+            RateBasedStatement:
+              Limit: 2000
+              AggregateKeyType: IP
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: global-rate-limit
+            SampledRequestsEnabled: true
+        - Name: aws-core-rule-set
+          Priority: 3
+          OverrideAction:
+            None: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesCommonRuleSet
+              RuleActionOverrides:
+                - Name: SizeRestrictions_BODY
+                  ActionToUse:
+                    Count: {}
+                # Authoring content writes (XML/HTML bodies) trip XSS body inspection
+                - Name: CrossSiteScripting_BODY
+                  ActionToUse:
+                    Count: {}
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: aws-core-rule-set
+            SampledRequestsEnabled: true
+        - Name: sql-injection-protection
+          Priority: 4
+          OverrideAction:
+            None: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesSQLiRuleSet
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: sql-injection-protection
             SampledRequestsEnabled: true
 
   GuardDutyEndPoint:
@@ -475,7 +534,7 @@ Resources:
               Times:
                 - "{{kuber_volume_daily_backup_time_utc}}"
             RetainRule:
-              Count: 3
+              Count: 7
             CopyTags: true
             CrossRegionCopyRules:
               !If
@@ -485,7 +544,7 @@ Resources:
                   Encrypted: false
                   CopyTags: true
                   RetainRule:
-                    Interval: 3
+                    Interval: 7
                     IntervalUnit: "DAYS"    
               - !Ref 'AWS::NoValue'
 
@@ -564,13 +623,14 @@ Resources:
               raise ValueError("Unsupported Tags format")
 
           def handler(event, context):
-              props = event['ResourceProperties']
-              bucket_name = props['BackupBucketName']
-              bucket_region = props['BackupBucketRegion']
-              enable_versioning = str(props.get('EnableVersioning', 'false')).lower() == 'true'
-              tags = normalize_tags(props.get('Tags'))
-
+              bucket_name = 'unknown'
               try:
+                  props = event['ResourceProperties']
+                  bucket_name = props['BackupBucketName']
+                  bucket_region = props['BackupBucketRegion']
+                  enable_versioning = str(props.get('EnableVersioning', 'false')).lower() == 'true'
+                  tags = normalize_tags(props.get('Tags'))
+
                   if event['RequestType'] in ('Create', 'Update'):
                       client = boto3.client('s3', region_name=bucket_region)
 

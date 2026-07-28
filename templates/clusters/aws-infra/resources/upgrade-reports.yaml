@@ -40,7 +40,6 @@ Resources:
     Type: AWS::IAM::Role
     Condition: UpgradeReportsEnabled
     Properties:
-      RoleName: "{{cluster_name}}-WeeklyUpgradeReportLambdaRole"
       AssumeRolePolicyDocument:
         Statement:
           - Effect: Allow
@@ -61,9 +60,12 @@ Resources:
               - Effect: Allow
                 Action:
                   - es:DescribeDomain
+                  - es:DescribeElasticsearchDomain
                   - es:GetCompatibleVersions
                   - es:ListPackagesForDomain
-                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/{{cluster_name}}-opensearch/*"
+                Resource:
+                  - !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/{{cluster_name}}-opensearch"
+                  - !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/{{cluster_name}}-opensearch/*"
               - Effect: Allow
                 Action:
                   - es:DescribePackages

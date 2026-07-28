@@ -66,11 +66,18 @@ find . -type f ! -name setup.sh -exec sed -i "s/{{delivery_instance_count}}/$DEL
 find . -type f ! -name setup.sh -exec sed -i "s/{{enable_blobs_buckets_creation}}/$ENABLE_BLOBS_BUCKETS_CREATION/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s/{{enable_backup_buckets_creation}}/$ENABLE_BACKUP_BUCKETS_CREATION/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s/{{enable_s3_origin_failover}}/$ENABLE_S3_ORIGIN_FAILOVER/g" {} \;
+find . -type f ! -name setup.sh -exec sed -i "s/{{enable_waf}}/$ENABLE_WAF/g" {} \;
+find . -type f ! -name setup.sh -exec sed -i "s~{{web_acl_arn}}~$WEB_ACL_ARN~g" {} \;
+find . -type f ! -name setup.sh -exec sed -i "s/{{waf_rate_limit}}/$WAF_RATE_LIMIT/g" {} \;
+find . -type f ! -name setup.sh -exec sed -i "s/{{enable_waf_bot_control}}/$ENABLE_WAF_BOT_CONTROL/g" {} \;
+find . -type f ! -name setup.sh -exec sed -i "s~{{waf_allowed_ip_addresses}}~$WAF_ALLOWED_IP_ADDRESSES~g" {} \;
+find . -type f ! -name setup.sh -exec sed -i "s~{{waf_blocked_ip_addresses}}~$WAF_BLOCKED_IP_ADDRESSES~g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s/{{disable_bucket_clear_on_target_deletion}}/$DISABLE_BUCKET_CLEAR_ON_TARGET_DELETION/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s/{{disable_cloudformation_deletion_on_target_deletion}}/$DISABLE_CLOUDFORMATION_DELETION_ON_TARGET_DELETION/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s~{{vpc_cidr}}~$VPC_CIDR~g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s/{{nat_gateway_mode}}/$NAT_GATEWAY_MODE/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s~{{cluster_public_access_cidrs}}~$cluster_public_access_cidr_list~g" {} \;
+find . -type f ! -name setup.sh -exec sed -i "s~{{cluster_public_access_cidrs_csv}}~$CLUSTER_PUBLIC_ACCESS_CIDRS~g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s/{{cluster_name}}/$CLUSTER_NAME/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s/{{site_cloudformation_stack_name_prefix}}/$SITE_CLOUDFORMATION_STACK_NAME_PREFIX/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s/{{s3_bucket_name_base_prefix}}/$S3_BUCKET_NAME_BASE_PREFIX/g" {} \;
@@ -110,6 +117,7 @@ find . -type f ! -name setup.sh -exec sed -i "s~{{mail_address}}~${MAIL_ADDRESS}
 find . -type f ! -name setup.sh -exec sed -i "s/{{mail_smtp_auth}}/${MAIL_SMTP_AUTH}/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s/{{mail_smtp_starttls}}/${MAIL_SMTP_STARTTLS}/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s~{{alarms_email_address}}~${ALARMS_EMAIL_ADDRESS}~g" {} \;
+find . -type f ! -name setup.sh -exec sed -i "s~{{notifications_email_address}}~${NOTIFICATIONS_EMAIL_ADDRESS:-cloud-ops@craftercms.com}~g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s/{{argocd_project}}/${ARGOCD_PROJECT}/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s~{{delivery_domain_name}}~${DELIVERY_DOMAIN_NAME}~g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s~{{prod_env}}~$prod_env~g" {} \;

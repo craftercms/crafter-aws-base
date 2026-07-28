@@ -71,11 +71,22 @@ are `ENV-authoring.CLIENT_ID-(blue|green).net` and `ENV-delivery.CLIENT_ID-(blue
 6. `ALARMS_SLACK_CHANNEL_HOOK_URL` and `PAGER_DUTY_INTEGRATION_URL` are optional. When Slack is not configured, alarm notifications are sent to `ALARMS_EMAIL_ADDRESS` instead. Leave `PAGER_DUTY_INTEGRATION_URL` empty to skip PagerDuty notifications.
 7. Run the `./scripts/clusters/setup.sh` script and enter the environment's name when prompted.
 
-- Add the Crafter license under `./clusters/{AWS_REGION}/{CLUSTER_NAME}/kubernetes/gitops/apps/main/craftercms/resources/common/secrets/crafter.lic`.
+## Add the Crafter license (required before CrafterCMS)
+
+**Do this after cluster setup and before you sync the `craftercms` Argo CD app.** Argo CD cannot build the CrafterCMS manifests without this file.
+
+1. Obtain the Crafter Enterprise license from Cloud Ops / licensing (non-production license for dev/QA clusters; production license for prod clusters). The file is usually delivered as a zip renamed to `.lic` for GitHub upload — **commit the file as-is** (it remains a zip archive named `crafter.lic`; do not unzip it).
+2. Copy it to:
+
+   `./clusters/{AWS_REGION}/{CLUSTER_NAME}/kubernetes/gitops/apps/main/craftercms/resources/common/secrets/crafter.lic`
+
+3. Commit and push the cluster config to the GitOps repository **before** continuing with the Argo CD steps below.
+
+If `crafter.lic` is missing, syncing `craftercms` fails with a kustomize error such as `crafter.lic: no such file or directory`.
 
 ## Install Crafter CMS from ArgoCD
 
-- Make sure you commit and push the cluster config back up to the master repository before continuing with this section.
+- Make sure you commit and push the cluster config back up to the master repository before continuing with this section (including `crafter.lic` as described above).
 
 ### Stage 1 — Bootstrap Argo CD and deploy addons
 
@@ -101,28 +112,61 @@ After the script completes:
 4. Wait for the `aws-load-balancer-controller` app to be healthy:
    - `argocd app wait aws-load-balancer-controller --health`
 
-### Stage 2 — Switch Argo CD to NLB (once controller is running)
+### Stage 2 — Access Argo CD (port-forward by default)
 
-Once the AWS Load Balancer Controller is healthy, patch `argocd-server` from `ClusterIP` to a proper NLB-backed `LoadBalancer` service:
+By default, Argo CD is installed with a `ClusterIP` service. Use **kubectl port-forward** from a machine that has cluster access (your laptop with `kubectl` configured, or a bastion with kubeconfig):
+
+```bash
+kubectl port-forward svc/argocd-server -n argocd 18080:443
+```
+
+Then open `https://localhost:18080` in your browser (ignore the certificate warning).
+
+Login with username `admin`. The password is printed when `install-argocd.sh` completes, stored in `scripts/clusters/config.*.sh`, or in AWS Secrets Manager as `CLUSTER_NAME/argocd-credentials`.
+
+#### Optional — Argo CD NLB (only when port-forward is not practical)
+
+Enable the NLB patch **only** if you cannot use port-forward — for example, when installing exclusively from a bastion host with no local browser, or when multiple operators need a stable URL without keeping a port-forward session open. The NLB adds ongoing cost; for dev clusters, port-forward is usually sufficient. Do not enable the NLB and ALB options together.
+
+Once the AWS Load Balancer Controller is healthy:
+
 ```
 ./scripts/clusters/kubernetes/enable-argocd-nlb.sh
 ```
 
-You can then get the ArgoCD domain name by running:
+You can then get the ArgoCD hostname:
 
 ```
 kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
 ```
 
-And finally, access the ArgoCD UI by going to `https://ARGOCD_DOMAIN` in your browser (ignore the certificate error the browser gives you and proceed, since ArgoCD uses a private certificate)
+Open `https://ARGOCD_DOMAIN` in your browser (ignore the certificate warning).
 
-### Stage 2 — Deploy the rest of the apps and CrafterCMS
+#### Optional — Argo CD ALB (custom domain + ACM certificate)
+
+Prefer the ALB when you want a trusted HTTPS hostname (e.g. `https://argocd.example.com`) with an ACM certificate. This matches the Authoring ingress pattern: TLS terminates at the ALB and Argo CD runs with `server.insecure`. Do not enable the ALB and NLB options together.
+
+Once the AWS Load Balancer Controller is healthy:
+
+```
+./scripts/clusters/kubernetes/enable-argocd-alb.sh
+```
+
+Get the ALB hostname:
+
+```
+kubectl -n argocd get ingress argocd-server-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+```
+
+Initially the ALB serves HTTP only. After the ACM certificate is issued, uncomment the `listen-ports` / `ssl-redirect` / `certificate-arn` annotations in `kubernetes/gitops/argocd/ingress-alb.yaml`, set the certificate ARN, re-apply the overlay, and point your Route 53 record at the ALB hostname.
+
+### Stage 3 — Deploy the rest of the apps and CrafterCMS
 
 After login to the ArgoCD UI, you can now install the rest of the apps. 
 
 1. Go through each app that's in `OutOfSync` state and `Sync` it, starting with the `storage-addons` app. Leave the `craftercms` app last
 2. Some apps might fail syncing. For those you might need to select `Server-side Apply` under the `Sync Options`.
-3. After the other apps have veen synced, sync the `craftercms` app.
+3. After the other apps have been synced, sync the `craftercms` app (requires `crafter.lic` to already be in Git — see [Add the Crafter license](#add-the-crafter-license-required-before-craftercms)).
 4. Wait for the `authoring` and `delivery` pods to become ready (`kubectl -n craftercms get pods`)
 5. Get the Authoring LB from `k9s` (by entering `:ingress`), or by running `kubectl -n craftercms get ingress` 
 6. Finally enter `http://AUTHORING_LB/studio` in your browser, Studio should appear. You should be able to login 

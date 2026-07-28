@@ -4,6 +4,8 @@ namespace: argocd
 resources:
   - namespace.yaml
   - install.yaml
+  # - ingress-alb.yaml
 patches:
   - path: patches.yaml
   #- path: patches-nlb.yaml
+  #- path: patches-alb.yaml

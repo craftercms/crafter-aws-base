@@ -145,6 +145,31 @@ Parameters:
   AuthAtEdgeLambdaArn:
     Type: String
     Default: ''
+  EnableWaf:
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+  WebACLArn:
+    Type: String
+    Default: ''
+  WafRateLimit:
+    Type: Number
+    Default: 2000
+    MinValue: 10
+  EnableWafBotControl:
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+  WafAllowedIpAddresses:
+    Type: CommaDelimitedList
+    Default: ''
+  WafBlockedIpAddresses:
+    Type: CommaDelimitedList
+    Default: ''
 
 Conditions:
   IsTestStack:
@@ -176,7 +201,17 @@ Conditions:
   ShouldEnableCloudFrontLoggingBucket:
     !And [!Equals [true, !Ref EnableCloudFrontLogging], !Not [!Equals [!Ref CloudFrontLoggingS3BucketName, '']]]
   AuthAtEdgeLambdaArnSpecified:
-    !Not [!Equals [!Ref AuthAtEdgeLambdaArn, '']]    
+    !Not [!Equals [!Ref AuthAtEdgeLambdaArn, '']]
+  WebACLArnSpecified:
+    !Not [!Equals [!Ref WebACLArn, '']]
+  ShouldCreateSiteWebACL:
+    !And [!Equals [true, !Ref EnableWaf], !Not [Condition: WebACLArnSpecified]]
+  WafAllowedIpAddressesSpecified:
+    !Not [!Equals [!Join [',', !Ref WafAllowedIpAddresses], '']]
+  WafBlockedIpAddressesSpecified:
+    !Not [!Equals [!Join [',', !Ref WafBlockedIpAddresses], '']]
+  ShouldEnableWafBotControl:
+    !And [Condition: ShouldCreateSiteWebACL, !Equals [true, !Ref EnableWafBotControl]]
 
 Resources:
   S3BackupSiteBucket:
@@ -294,12 +329,167 @@ Resources:
           - !Ref 'AWS::NoValue'
       VersioningConfiguration:
         Status: Enabled
+
+  SiteWebACLAllowIpSet:
+    Type: AWS::WAFv2::IPSet
+    Condition: ShouldCreateSiteWebACL
+    Properties:
+      Name: !Sub '${SiteName}-allow-ip-set'
+      Description: !Sub 'Allowed IP addresses for site ${SiteName}'
+      Scope: CLOUDFRONT
+      IPAddressVersion: IPV4
+      Addresses: !If [WafAllowedIpAddressesSpecified, !Ref WafAllowedIpAddresses, []]
+
+  SiteWebACLBlockIpSet:
+    Type: AWS::WAFv2::IPSet
+    Condition: ShouldCreateSiteWebACL
+    Properties:
+      Name: !Sub '${SiteName}-block-ip-set'
+      Description: !Sub 'Blocked IP addresses for site ${SiteName}'
+      Scope: CLOUDFRONT
+      IPAddressVersion: IPV4
+      Addresses: !If [WafBlockedIpAddressesSpecified, !Ref WafBlockedIpAddresses, []]
+
+  SiteWebACL:
+    Type: AWS::WAFv2::WebACL
+    Condition: ShouldCreateSiteWebACL
+    Properties:
+      Name: !Sub '${SiteName}-site-web-acl'
+      Description: !Sub 'Essential WAF rules for site ${SiteName}'
+      Scope: CLOUDFRONT
+      DefaultAction:
+        Allow: {}
+      VisibilityConfig:
+        CloudWatchMetricsEnabled: true
+        MetricName: !Sub '${SiteName}-site-web-acl'
+        SampledRequestsEnabled: true
+      Rules:
+        - Name: ip-allowlist
+          Priority: 0
+          Action:
+            Allow: {}
+          Statement:
+            IPSetReferenceStatement:
+              Arn: !GetAtt SiteWebACLAllowIpSet.Arn
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: ip-allowlist
+            SampledRequestsEnabled: true
+        - Name: ip-blocklist
+          Priority: 1
+          Action:
+            Block: {}
+          Statement:
+            IPSetReferenceStatement:
+              Arn: !GetAtt SiteWebACLBlockIpSet.Arn
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: ip-blocklist
+            SampledRequestsEnabled: true
+        - Name: layer-7-anti-ddos
+          Priority: 2
+          OverrideAction:
+            None: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesAntiDDoSRuleSet
+              ManagedRuleGroupConfigs:
+                - AWSManagedRulesAntiDDoSRuleSet:
+                    SensitivityToBlock: LOW
+                    ClientSideActionConfig:
+                      Challenge:
+                        UsageOfAction: DISABLED
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: layer-7-anti-ddos
+            SampledRequestsEnabled: true
+        - !If
+          - ShouldEnableWafBotControl
+          - Name: bot-control-rules
+            OverrideAction:
+              None: {}
+            Priority: 3
+            Statement:
+              ManagedRuleGroupStatement:
+                VendorName: AWS
+                Name: AWSManagedRulesBotControlRuleSet
+                ManagedRuleGroupConfigs:
+                  - AWSManagedRulesBotControlRuleSet:
+                      EnableMachineLearning: false
+                      InspectionLevel: COMMON
+                RuleActionOverrides:
+                  - Name: CategoryMonitoring
+                    ActionToUse:
+                      Count: {}
+                  - Name: SignalNonBrowserUserAgent
+                    ActionToUse:
+                      Count: {}
+                  - Name: CategoryHttpLibrary
+                    ActionToUse:
+                      Count: {}
+            VisibilityConfig:
+              CloudWatchMetricsEnabled: true
+              MetricName: bot-control-rules
+              SampledRequestsEnabled: true
+          - !Ref AWS::NoValue
+        - Name: global-rate-limit
+          Priority: 4
+          Action:
+            Count: {}
+          Statement:
+            RateBasedStatement:
+              Limit: !Ref WafRateLimit
+              AggregateKeyType: IP
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: global-rate-limit
+            SampledRequestsEnabled: true
+        - Name: aws-core-rule-set
+          Priority: 5
+          OverrideAction:
+            None: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesCommonRuleSet
+              RuleActionOverrides:
+                - Name: SizeRestrictions_BODY
+                  ActionToUse:
+                    Count: {}
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: aws-core-rule-set
+            SampledRequestsEnabled: true
+        - Name: sql-injection-protection
+          Priority: 6
+          OverrideAction:
+            None: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesSQLiRuleSet
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: sql-injection-protection
+            SampledRequestsEnabled: true
+      Tags:
+        - Key: craftercms:environment
+          Value: {{environment}}
+        - Key: craftercms:prod
+          Value: {{prod_env}}
+        - Key: craftercms:site
+          Value: !Ref SiteName
   
   CloudFrontDistribution:
     Type: 'AWS::CloudFront::Distribution'
     Properties:
       DistributionConfig:
         Comment: !If [IsTestStack, !Sub 'Test CloudFront Distribution for site ${SiteName}', !Sub 'CloudFront Distribution for site ${SiteName}']
+        WebACLId: !If
+          - ShouldCreateSiteWebACL
+          - !GetAtt SiteWebACL.Arn
+          - !If [WebACLArnSpecified, !Ref WebACLArn, !Ref 'AWS::NoValue']
         Enabled: true
         PriceClass: !Ref CloudFrontPriceClass
         Aliases: !If [AlternateCloudFrontDomainNamesSpecified, !Ref AlternateCloudFrontDomainNames, !Ref 'AWS::NoValue']
@@ -402,3 +592,6 @@ Outputs:
     Value: !Ref CloudFrontDistribution
   CloudFrontDistributionDomainName:
     Value: !GetAtt CloudFrontDistribution.DomainName
+  SiteWebACLArn:
+    Condition: ShouldCreateSiteWebACL
+    Value: !GetAtt SiteWebACL.Arn

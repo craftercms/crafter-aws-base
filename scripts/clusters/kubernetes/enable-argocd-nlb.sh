@@ -17,6 +17,12 @@ if [ ! -f "$KUSTOMIZATION_FILE" ]; then
   exit 1
 fi
 
+if grep -qE '^[[:space:]]*- ingress-alb.yaml' "$KUSTOMIZATION_FILE" || \
+   grep -qE '^[[:space:]]*- path: patches-alb.yaml' "$KUSTOMIZATION_FILE"; then
+  cecho "ALB ingress/patch is enabled. Disable ingress-alb.yaml and patches-alb.yaml before enabling the NLB (they are mutually exclusive)." "error"
+  exit 1
+fi
+
 cd "$ARGOCD_CONFIG_HOME"
 
 cecho "Enabling Argo CD NLB patch in $KUSTOMIZATION_FILE..." "info"

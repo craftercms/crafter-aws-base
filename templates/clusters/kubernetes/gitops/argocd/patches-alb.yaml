@@ -1,0 +1,8 @@
+# Required when TLS terminates at the ALB (server serves plain HTTP on 8080).
+# Do not enable together with patches-nlb.yaml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cmd-params-cm
+data:
+  server.insecure: "true"
