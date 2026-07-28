@@ -14,11 +14,15 @@ function gen_random_pswd() {
 ALARMS_STACK_NAME="${CLUSTER_NAME}-alarms"
 RESOURCES_STACK_NAME="${CLUSTER_NAME}-resources"
 HEALTHCHECKS_STACK_NAME="${CLUSTER_NAME}-${AWS_DEFAULT_REGION}-healthchecks"
+NOTIFICATIONS_STACK_NAME="${CLUSTER_NAME}-notifications"
 UPGRADE_REPORTS_STACK_NAME="${CLUSTER_NAME}-upgrade-reports"
+VOLUME_BACKUP_REPORTS_STACK_NAME="${CLUSTER_NAME}-volume-backup-reports"
 ALARMS_STACK_CONFIG_FILE="$CLUSTER_HOME/aws-infra/resources/alarms.yaml"
 RESOURCES_STACK_CONFIG_FILE="$CLUSTER_HOME/aws-infra/resources/resources.yaml"
 HEALTHCHECKS_STACK_CONFIG_FILE="$CLUSTER_HOME/aws-infra/resources/healthchecks.yaml"
+NOTIFICATIONS_STACK_CONFIG_FILE="$CLUSTER_HOME/aws-infra/resources/notifications.yaml"
 UPGRADE_REPORTS_STACK_CONFIG_FILE="$CLUSTER_HOME/aws-infra/resources/upgrade-reports.yaml"
+VOLUME_BACKUP_REPORTS_STACK_CONFIG_FILE="$CLUSTER_HOME/aws-infra/resources/volume-backup-reports.yaml"
 
 resources_stack=$(aws cloudformation describe-stacks --stack-name $RESOURCES_STACK_NAME | jq '.Stacks[0]')
 if [ -z "$resources_stack" ] || [ "$resources_stack" == "null" ]; then
@@ -83,11 +87,25 @@ if [ -z "$alarms_stack" ] || [ "$alarms_stack" == "null" ]; then
         ParameterKey=CloudWatchAlarmsEnabled,ParameterValue=$ENABLE_CLOUDWATCH_ALARMS \
         ParameterKey=AlarmsSlackChannelHookUrl,ParameterValue=${ALARMS_SLACK_CHANNEL_HOOK_URL:-} \
         ParameterKey=AlarmsEmailAddress,ParameterValue=$ALARMS_EMAIL_ADDRESS \
-        ParameterKey=PagerDutyIntegrationUrl,ParameterValue=${PAGER_DUTY_INTEGRATION_URL:-}
+        ParameterKey=PagerDutyIntegrationUrl,ParameterValue=${PAGER_DUTY_INTEGRATION_URL:-} \
+        ParameterKey=DeliveryInstanceCount,ParameterValue=$DELIVERY_INSTANCE_COUNT
 
     cecho "Waiting for alarms stack to be created..." "info"
 else
     cecho "Resources stack $ALARMS_STACK_NAME already exists" "info"
+fi
+
+notifications_stack=$(aws cloudformation describe-stacks --region $AWS_DEFAULT_REGION --stack-name $NOTIFICATIONS_STACK_NAME | jq '.Stacks[0]')
+if [ -z "$notifications_stack" ] || [ "$notifications_stack" == "null" ]; then
+    aws cloudformation create-stack --region $AWS_DEFAULT_REGION --stack-name $NOTIFICATIONS_STACK_NAME \
+        --capabilities CAPABILITY_NAMED_IAM --template-body file://$NOTIFICATIONS_STACK_CONFIG_FILE --parameters \
+        ParameterKey=NotificationsEmailAddress,ParameterValue=${NOTIFICATIONS_EMAIL_ADDRESS:-cloud-ops@craftercms.com}
+
+    cecho "Waiting for notifications stack to be created..." "info"
+
+    aws cloudformation wait stack-create-complete --region $AWS_DEFAULT_REGION --stack-name $NOTIFICATIONS_STACK_NAME
+else
+    cecho "Notifications stack $NOTIFICATIONS_STACK_NAME already exists" "info"
 fi
 
 upgrade_reports_stack=$(aws cloudformation describe-stacks --region $AWS_DEFAULT_REGION --stack-name $UPGRADE_REPORTS_STACK_NAME | jq '.Stacks[0]')
@@ -102,4 +120,28 @@ if [ -z "$upgrade_reports_stack" ] || [ "$upgrade_reports_stack" == "null" ]; th
     aws cloudformation wait stack-create-complete --region $AWS_DEFAULT_REGION --stack-name $UPGRADE_REPORTS_STACK_NAME
 else
     cecho "Upgrade reports stack $UPGRADE_REPORTS_STACK_NAME already exists" "info"
+fi
+
+volume_backup_reports_stack=$(aws cloudformation describe-stacks --region $AWS_DEFAULT_REGION --stack-name $VOLUME_BACKUP_REPORTS_STACK_NAME | jq '.Stacks[0]')
+if [ -z "$volume_backup_reports_stack" ] || [ "$volume_backup_reports_stack" == "null" ]; then
+    if [ "${ENABLE_VOLUME_BACKUP_REPORTS:-true}" != "true" ]; then
+        cecho "Volume backup reports disabled (ENABLE_VOLUME_BACKUP_REPORTS=false). Skipping stack creation." "info"
+    else
+        notifications_export=$(aws cloudformation list-exports --region $AWS_DEFAULT_REGION \
+            --query "Exports[?Name=='${CLUSTER_NAME}-NotificationsSNSTopicArn'].Value" --output text)
+        if [ -z "$notifications_export" ] || [ "$notifications_export" == "None" ]; then
+            cecho "Volume backup reports require the notifications stack export ${CLUSTER_NAME}-NotificationsSNSTopicArn. Deploy notifications first." "error"
+            exit 1
+        fi
+
+        aws cloudformation create-stack --region $AWS_DEFAULT_REGION --stack-name $VOLUME_BACKUP_REPORTS_STACK_NAME \
+            --capabilities CAPABILITY_NAMED_IAM --template-body file://$VOLUME_BACKUP_REPORTS_STACK_CONFIG_FILE --parameters \
+            ParameterKey=VolumeBackupReportsEnabled,ParameterValue=true
+
+        cecho "Waiting for volume backup reports stack to be created..." "info"
+
+        aws cloudformation wait stack-create-complete --region $AWS_DEFAULT_REGION --stack-name $VOLUME_BACKUP_REPORTS_STACK_NAME
+    fi
+else
+    cecho "Volume backup reports stack $VOLUME_BACKUP_REPORTS_STACK_NAME already exists" "info"
 fi

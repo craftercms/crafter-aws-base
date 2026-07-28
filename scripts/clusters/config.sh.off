@@ -15,8 +15,8 @@ export EKSCTL_VERSION=v0.224.0
 export KUBECTL_VERSION=v1.35.0
 # Required
 export K9S_VERSION=v0.50.18
-# Required (default 11am ET)
-export UPGRADE_NODES_CRON='0 11 * * 0'
+# Required (default 9pm ET)
+export UPGRADE_NODES_CRON='0 21 * * 0'
 # Required
 export UPGRADE_NODES_CRON_TZ='America/New_York'
 # Optional (default 5). Max parallel nodegroup upgrades in the weekly CronJob
@@ -84,6 +84,19 @@ export ENABLE_BLOBS_BUCKETS_CREATION=true
 export ENABLE_BACKUP_BUCKETS_CREATION=false
 # Required (true or false). Recommended true in multi-region delivery environments
 export ENABLE_S3_ORIGIN_FAILOVER=false
+# Optional (true or false). When true, creates AWS WAF Essentials rules for site CloudFront distributions.
+# CloudFront-scoped WAF resources must be created in us-east-1; use WEB_ACL_ARN for clusters in other regions.
+export ENABLE_WAF=false
+# Optional. External CloudFront Web ACL ARN to associate when not using ENABLE_WAF.
+export WEB_ACL_ARN=
+# Optional. Global rate limit for site WAF (requests per 5 minutes per IP, minimum 10).
+export WAF_RATE_LIMIT=2000
+# Optional (true or false). Enables AWSManagedRulesBotControlRuleSet for site WAF.
+export ENABLE_WAF_BOT_CONTROL=false
+# Optional. Comma-separated IPv4 addresses for the site WAF allow list.
+export WAF_ALLOWED_IP_ADDRESSES=
+# Optional. Comma-separated IPv4 addresses for the site WAF block list.
+export WAF_BLOCKED_IP_ADDRESSES=
 # Required (true or false). When setting a green environment is a good idea to set as true to avoid accidentally clearing the site buckets used in blue. Also a good idea to disable in prod environments
 export DISABLE_BUCKET_CLEAR_ON_TARGET_DELETION=false
 # Required (true or false). When setting a green environment is a good idea to set as true to avoid accidentally deleting the site CloudFormations used in blue. Also a good idea to disable in prod environments
@@ -159,8 +172,12 @@ export CLOUDFRONT_SECRET_HEADER_NAME_SUFFIX=
 export CLOUDFRONT_SECRET_HEADER_VALUE=
 # Required
 export ALARMS_EMAIL_ADDRESS=alarm@craftersoftware.com
+# Optional. Common SNS notifications topic (jobs like #996). Separate from CloudWatch alarm emails.
+export NOTIFICATIONS_EMAIL_ADDRESS=cloud-ops@craftercms.com
 # Optional (true or false). Weekly OpenSearch and EKS upgrade report via email
 export ENABLE_UPGRADE_REPORTS=true
+# Optional (true or false). Weekly DLM / authoring-data volume backup check via common notifications SNS (#996)
+export ENABLE_VOLUME_BACKUP_REPORTS=true
 # Optional, if specified will enable Deployer notifications (comma-separated email addresses)
 export DEPLOYER_NOTIFICATION_EMAIL_ADDRESSES=
 # Required

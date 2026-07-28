@@ -73,9 +73,17 @@ Resources:
               alarm['description'] = sns_message['AlarmDescription']
               alarm['reason'] = sns_message['NewStateReason']
               alarm['region'] = sns_message['Region']
-              alarm['instance_id'] = sns_message['Trigger']['Metrics'][1]['MetricStat']['Metric']['Dimensions'][0]['value']
               alarm['state'] = sns_message['NewStateValue']
               alarm['previous_state'] = sns_message['OldStateValue']
+              # Metric-math alarms may list expressions before MetricStat
+              # (e.g. os-http-errors SUM). Do not assume Metrics[1] is MetricStat.
+              alarm['instance_id'] = None
+              for metric in (sns_message.get('Trigger') or {}).get('Metrics') or []:
+                  try:
+                      alarm['instance_id'] = metric['MetricStat']['Metric']['Dimensions'][0]['value']
+                      break
+                  except (KeyError, IndexError, TypeError):
+                      continue
 
               return alarm
 

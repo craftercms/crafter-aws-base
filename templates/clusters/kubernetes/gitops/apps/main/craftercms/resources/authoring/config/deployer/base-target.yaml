@@ -11,6 +11,12 @@ aws:
     enableBlobsBucketsCreation: ${env:ENABLE_BLOBS_BUCKETS_CREATION}
     enableBackupBucketsCreation: ${env:ENABLE_BACKUP_BUCKETS_CREATION}
     enableS3OriginFailover: ${env:ENABLE_S3_ORIGIN_FAILOVER}
+    enableWaf: ${env:ENABLE_WAF}
+    webACLArn: ${env:WEB_ACL_ARN}
+    wafRateLimit: ${env:WAF_RATE_LIMIT}
+    enableWafBotControl: ${env:ENABLE_WAF_BOT_CONTROL}
+    wafAllowedIpAddresses: ${env:WAF_ALLOWED_IP_ADDRESSES}
+    wafBlockedIpAddresses: ${env:WAF_BLOCKED_IP_ADDRESSES}
     s3ReplicationRoleArn: ${env:S3_REPLICATION_ROLE_ARN}
     s3BackupBucketLambdaArn: ${env:S3_BACKUP_BUCKET_LAMBDA_ARN}
     stackNamePrefix: ${env:CLOUDFORMATION_STACK_NAME_PREFIX}

@@ -61,6 +61,12 @@ target:
           CloudFrontSecretHeaderValue: ${aws.cloudformation.cloudfrontSecretHeaderValue}
           CloudFrontOriginAccessIdentityId: ${aws.cloudformation.cloudFrontOriginAccessIdentityId}
           CloudFrontLoggingS3BucketName: ${aws.cloudformation.cloudFrontLoggingS3BucketName}
+          EnableWaf: ${aws.cloudformation.enableWaf}
+          WebACLArn: ${aws.cloudformation.webACLArn}
+          WafRateLimit: ${aws.cloudformation.wafRateLimit}
+          EnableWafBotControl: ${aws.cloudformation.enableWafBotControl}
+          WafAllowedIpAddresses: ${aws.cloudformation.wafAllowedIpAddresses}
+          WafBlockedIpAddresses: ${aws.cloudformation.wafBlockedIpAddresses}
     {{#if source_target}}
     duplicate:
       - hookName: duplicateIndexLifecycleHook
@@ -91,6 +97,12 @@ target:
           CloudFrontSecretHeaderValue: ${aws.cloudformation.cloudfrontSecretHeaderValue}
           CloudFrontOriginAccessIdentityId: ${aws.cloudformation.cloudFrontOriginAccessIdentityId}
           CloudFrontLoggingS3BucketName: ${aws.cloudformation.cloudFrontLoggingS3BucketName}
+          EnableWaf: ${aws.cloudformation.enableWaf}
+          WebACLArn: ${aws.cloudformation.webACLArn}
+          WafRateLimit: ${aws.cloudformation.wafRateLimit}
+          EnableWafBotControl: ${aws.cloudformation.enableWafBotControl}
+          WafAllowedIpAddresses: ${aws.cloudformation.wafAllowedIpAddresses}
+          WafBlockedIpAddresses: ${aws.cloudformation.wafBlockedIpAddresses}
       - hookName: waitTillCloudFormationStackUsableLifecycleHook
         region: ${aws.region}
         accessKey: ${aws.cloudformation.accessKey}
