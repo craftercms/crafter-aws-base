@@ -89,6 +89,12 @@ Parameters:
     Type: CommaDelimitedList
     Description: Enter the AWS Principal ARNs that are allowed to assume the EKS CrafterCMS support role
 
+  ClientId:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,43}$'
+    ConstraintDescription: Lowercase client id used in S3 and IAM names (for example client-a)
+    Description: Short client id. Names the OpenSearch manual snapshot bucket {ClientId}-crafter-opensearch-manual-snapshots.
+
 Conditions:
   IsAllSupported: !Equals
     - !Ref AllSupported
@@ -361,6 +367,53 @@ Resources:
               Ref: EksCrafterCMSSupportTrustedPrincipals
           Action: sts:AssumeRole
 
+  OpenSearchManualSnapshotBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub '${ClientId}-crafter-opensearch-manual-snapshots'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      Tags:
+        - Key: Purpose
+          Value: opensearch-manual-snapshots
+        - Key: ClientId
+          Value: !Ref ClientId
+
+  OpenSearchManualSnapshotRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ClientId}-crafter-opensearch-snapshot'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: es.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: OpenSearchManualSnapshotS3
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:DeleteObject
+                Resource: !Sub '${OpenSearchManualSnapshotBucket.Arn}/*'
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt OpenSearchManualSnapshotBucket.Arn
+
   DefaultDeliveryCloudFrontCachingPolicy:
     Type: AWS::CloudFront::CachePolicy
     Properties:
@@ -424,3 +477,9 @@ Outputs:
     Value:
       Ref: DefaultStaticAssetsCloudfrontResponseHeadersPolicy
     Description: ID of the default CloudFront response headers policy used for static assets
+  OpenSearchManualSnapshotBucket:
+    Value: !Ref OpenSearchManualSnapshotBucket
+    Description: S3 bucket for manual OpenSearch snapshots
+  OpenSearchManualSnapshotRoleArn:
+    Value: !GetAtt OpenSearchManualSnapshotRole.Arn
+    Description: IAM role OpenSearch assumes for manual S3 snapshots

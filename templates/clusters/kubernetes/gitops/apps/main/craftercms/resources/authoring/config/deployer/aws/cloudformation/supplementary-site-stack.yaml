@@ -7,8 +7,21 @@ Parameters:
     Type: String
   S3SiteBucketName:
     Type: String
+  CreateBlobsBuckets:
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+  S3BlobsBucketName:
+    Type: String
+    Default: ''
   CloudFrontOriginAccessIdentityId:
     Type: String
+
+Conditions:
+  ShouldCreateBlobsBuckets:
+    !And [!Not [!Equals [!Ref S3BlobsBucketName, '']], !Equals [true, !Ref CreateBlobsBuckets]]
 
 Resources:
   S3SiteBucket:
@@ -48,3 +61,22 @@ Resources:
               AWS: !Sub 'arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ${CloudFrontOriginAccessIdentityId}'
             Action: 's3:ListBucket'
             Resource: !Sub 'arn:aws:s3:::${S3SiteBucketName}'
+
+  S3BlobsBucket:
+    Type: 'AWS::S3::Bucket'
+    Condition: ShouldCreateBlobsBuckets
+    Properties:
+      Tags:
+        - Key: craftercms:environment
+          Value: {{environment}}
+        - Key: craftercms:prod
+          Value: {{prod_env}}
+      BucketName: !Ref S3BlobsBucketName
+      AccessControl: Private
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled

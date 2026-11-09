@@ -75,6 +75,11 @@ iam:
               - sns:Publish
             Resource:
               - "arn:aws:sns:{{aws_region}}:{{aws_account_id}}:{{cluster_name}}-UpgradeReportSNSTopic"
+          - Effect: Allow
+            Action:
+              - s3:PutObject
+            Resource:
+              - "arn:aws:s3:::{{ops_reports_bucket}}/*"
     - metadata:
         name: cloudwatch-addons
         namespace: amazon-cloudwatch
@@ -184,14 +189,15 @@ iam:
               - 'wafv2:TagResource'
               - 'wafv2:UntagResource'
               - 'wafv2:ListTagsForResource'
-              - 'wafv2:GetManagedRuleSet'
             Resource:
               - "arn:aws:wafv2:us-east-1:{{aws_account_id}}:global/webacl/*"
               - "arn:aws:wafv2:us-east-1:{{aws_account_id}}:global/ipset/*"
-              - "arn:aws:wafv2:us-east-1:{{aws_account_id}}:global/managedruleset/*/*"
               - "arn:aws:wafv2:{{aws_region}}:{{aws_account_id}}:regional/webacl/*"
               - "arn:aws:wafv2:{{aws_region}}:{{aws_account_id}}:regional/ipset/*"
-              - "arn:aws:wafv2:{{aws_region}}:{{aws_account_id}}:regional/managedruleset/*/*"
+          - Effect: Allow
+            Action:
+              - 'wafv2:DescribeManagedRuleGroup'
+            Resource: "*"
     - metadata:
         name: delivery
         namespace: craftercms

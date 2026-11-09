@@ -439,3 +439,6 @@ studio.security.token.cookie.secure: ${env:STUDIO_REFRESH_TOKEN_SECURE}
 
 # Use base domain instead of subdomain for the crafterSite cookie
 studio.cookie.useBaseDomain: false
+
+# The location of the default whitelist to use (this will have no effect if the sandbox is disabled)
+studio.scripting.sandbox.whitelist.path: classpath:crafter/studio/extension/groovy/whitelist

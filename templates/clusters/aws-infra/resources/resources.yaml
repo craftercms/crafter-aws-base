@@ -51,12 +51,47 @@ Parameters:
     Default: 'alfonso steven sumer russ'
     AllowedPattern: '^[a-z][a-z0-9_-]*( [a-z][a-z0-9_-]*)*$'
     ConstraintDescription: 'Space-separated lowercase usernames starting with a letter, containing only letters, digits, underscores, and hyphens'
+  BastionAmiId:
+    Type: AWS::EC2::Image::Id
+    Description: >-
+      AMI for the bastion host. Resolved from the AL2023 public SSM parameter when the stack is
+      created, then kept with UsePreviousValue on later updates. An SSM parameter type or an
+      unversioned resolve:ssm reference would be re-resolved on every update and replace the
+      instance, losing local users, host keys and the private IP.
+  BastionPatchScheduleExpression:
+    Type: String
+    Default: 'cron(0 1 ? * MON *)'
+    Description: >-
+      Weekly SSM Patch Manager schedule in UTC. Default is Monday 01:00 UTC: Sunday 9 PM EDT
+      during daylight saving, Sunday 8 PM EST during standard time. SSM Association has no
+      timezone, so this cannot stay at 9 PM ET year round. The run still sits inside the
+      Sunday 9 to 11 PM ET alarm blackout (Monday UTC hours 1 to 4), which already covers
+      both DST offsets.
+  OpenSearchSoftwareAutoUpdateEnabled:
+    Type: String
+    Default: true
+    AllowedValues:
+      - true
+      - false
+    Description: >-
+      When true, queue OpenSearch service software updates during Sunday maintenance
+      (software patch only, never engine upgrade).
+  AuthoringWebAclEnabled:
+    Type: String
+    Default: true
+    AllowedValues:
+      - true
+      - false
 
 Conditions:
   UseBackupRegion:
     !And [!Not [!Equals [!Ref BackupRegion, '']], !Not [!Equals [!Ref BackupRegionBucketNamePrefix, '']]]
   IsOpenSearchSingleNodeCluster:
     !Equals [true, !Ref OpenSearchSingleNodeCluster]
+  OpenSearchSoftwareAutoUpdateEnabled:
+    !Equals [true, !Ref OpenSearchSoftwareAutoUpdateEnabled]
+  AuthoringWebAclEnabled:
+    !Equals [true, !Ref AuthoringWebAclEnabled]
 
 Resources:
 # S3 Log-forwarding config
@@ -176,6 +211,7 @@ Resources:
 
   AuthoringWebACL:
     Type: AWS::WAFv2::WebACL
+    Condition: AuthoringWebAclEnabled
     Properties:
       Description: Bot control WebACL for Authoring in the {{cluster_name}} cluster
       VisibilityConfig:
@@ -243,38 +279,10 @@ Resources:
             CloudWatchMetricsEnabled: true
             MetricName: global-rate-limit
             SampledRequestsEnabled: true
-        - Name: aws-core-rule-set
-          Priority: 3
-          OverrideAction:
-            None: {}
-          Statement:
-            ManagedRuleGroupStatement:
-              VendorName: AWS
-              Name: AWSManagedRulesCommonRuleSet
-              RuleActionOverrides:
-                - Name: SizeRestrictions_BODY
-                  ActionToUse:
-                    Count: {}
-                # Authoring content writes (XML/HTML bodies) trip XSS body inspection
-                - Name: CrossSiteScripting_BODY
-                  ActionToUse:
-                    Count: {}
-          VisibilityConfig:
-            CloudWatchMetricsEnabled: true
-            MetricName: aws-core-rule-set
-            SampledRequestsEnabled: true
-        - Name: sql-injection-protection
-          Priority: 4
-          OverrideAction:
-            None: {}
-          Statement:
-            ManagedRuleGroupStatement:
-              VendorName: AWS
-              Name: AWSManagedRulesSQLiRuleSet
-          VisibilityConfig:
-            CloudWatchMetricsEnabled: true
-            MetricName: sql-injection-protection
-            SampledRequestsEnabled: true
+        # CRS and SQLi are omitted on Authoring: Studio content and configuration
+        # writes routinely trip body inspection (XSS, SQLi, EC2 SSRF, size limits)
+        # as authored payload, and overrides plus path exceptions end up with
+        # little real coverage left. Delivery keeps those rule groups.
 
   GuardDutyEndPoint:
     Type: AWS::EC2::VPCEndpoint
@@ -386,7 +394,7 @@ Resources:
   BastionInstance:
     Type: AWS::EC2::Instance
     Properties:
-      ImageId: !Sub '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}'
+      ImageId: !Ref BastionAmiId
       InstanceType: !Ref BastionInstanceType
       SubnetId: !Select [0, !Ref PrivateSubnetIds]
       SecurityGroupIds:
@@ -425,6 +433,63 @@ Resources:
           Value: {{environment}}
         - Key: craftercms:prod
           Value: {{prod_env}}
+        - Key: Patch Group
+          Value: {{cluster_name}}-bastion
+
+  BastionPatchBaseline:
+    Type: AWS::SSM::PatchBaseline
+    Properties:
+      Name: {{cluster_name}}-bastion-patch-baseline
+      Description: >-
+        Bastion only. Approves AL2023 Security Critical, Important, Medium, and Low,
+        plus Bugfix, with no waiting period. Not the account default, so EKS nodes
+        keep the AWS default baseline.
+      OperatingSystem: AMAZON_LINUX_2023
+      DefaultBaseline: false
+      RejectedPatchesAction: ALLOW_AS_DEPENDENCY
+      PatchGroups:
+        - {{cluster_name}}-bastion
+      ApprovalRules:
+        PatchRules:
+          - ApproveAfterDays: 0
+            ComplianceLevel: CRITICAL
+            EnableNonSecurity: false
+            PatchFilterGroup:
+              PatchFilters:
+                - Key: CLASSIFICATION
+                  Values:
+                    - Security
+                - Key: SEVERITY
+                  Values:
+                    - Critical
+                    - Important
+                    - Medium
+                    - Low
+          - ApproveAfterDays: 0
+            ComplianceLevel: MEDIUM
+            EnableNonSecurity: false
+            PatchFilterGroup:
+              PatchFilters:
+                - Key: CLASSIFICATION
+                  Values:
+                    - Bugfix
+
+  BastionPatchAssociation:
+    Type: AWS::SSM::Association
+    Properties:
+      ApplyOnlyAtCronInterval: true
+      AssociationName: {{cluster_name}}-bastion-weekly-patch
+      Name: AWS-RunPatchBaseline
+      ScheduleExpression: !Ref BastionPatchScheduleExpression
+      Parameters:
+        Operation:
+          - Install
+        RebootOption:
+          - RebootIfNeeded
+      Targets:
+        - Key: InstanceIds
+          Values:
+            - !Ref BastionInstance
 
   BastionInstanceConnectEndpoint:
     Type: AWS::EC2::InstanceConnectEndpoint
@@ -491,8 +556,6 @@ Resources:
       EBSOptions:
         EBSEnabled: true
         VolumeSize: !Ref OpenSearchVolumeSize
-        Iops: 3000
-        Throughput: 125
         VolumeType: "gp3"
       AccessPolicies:
         Version: 2012-10-17
@@ -513,6 +576,281 @@ Resources:
           - !Ref PrivateSubnetIds
         SecurityGroupIds:
           - !Ref OpenSearchSecurityGroup
+
+  # Sunday maintenance: queue OpenSearch service software patches only (never engine upgrade).
+  # Does not modify OpenSearchDomain properties. cron(0 3 ? * MON *) UTC = Sunday 11:00 PM ET
+  # during EDT / 10:00 PM ET during EST, after node upgrades start (9:00 PM ET) and still
+  # inside the #915 blackout window.
+  OpenSearchSoftwareUpdateLambdaRole:
+    Type: AWS::IAM::Role
+    Condition: OpenSearchSoftwareAutoUpdateEnabled
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service: lambda.amazonaws.com
+      Policies:
+        - PolicyName: OpenSearchSoftwareUpdateLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+              - Effect: Allow
+                Action:
+                  - es:DescribeDomain
+                  - es:DescribeElasticsearchDomain
+                  - es:StartServiceSoftwareUpdate
+                Resource:
+                  - !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/{{cluster_name}}-opensearch"
+                  - !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/{{cluster_name}}-opensearch/*"
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: "arn:aws:s3:::{{ops_reports_bucket}}/*"
+
+  OpenSearchSoftwareUpdateLambda:
+    Type: AWS::Lambda::Function
+    Condition: OpenSearchSoftwareAutoUpdateEnabled
+    Properties:
+      Tags:
+        - Key: craftercms:environment
+          Value: {{environment}}
+        - Key: craftercms:prod
+          Value: {{prod_env}}
+      FunctionName: "{{cluster_name}}-opensearch-software-update-lambda"
+      Runtime: python3.13
+      Handler: index.handler
+      Timeout: 60
+      Role: !GetAtt OpenSearchSoftwareUpdateLambdaRole.Arn
+      Environment:
+        Variables:
+          CLIENT_ID: "{{client_id}}"
+          ACCOUNT_ID: !Sub "${AWS::AccountId}"
+          REPORT_REGION: "{{aws_region}}"
+          OPENSEARCH_DOMAIN_NAME: "{{cluster_name}}-opensearch"
+          EKS_CLUSTER_NAME: "{{cluster_name}}"
+          OPS_REPORTS_BUCKET: "{{ops_reports_bucket}}"
+          OPS_REPORTS_BUCKET_REGION: "{{ops_reports_bucket_region}}"
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          import os
+          from datetime import datetime, timezone
+
+          import boto3
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          os_client = boto3.client('opensearch')
+
+          CLIENT_ID = os.environ.get('CLIENT_ID', '')
+          OPENSEARCH_DOMAIN_NAME = os.environ['OPENSEARCH_DOMAIN_NAME']
+          EKS_CLUSTER_NAME = os.environ['EKS_CLUSTER_NAME']
+          IN_PROGRESS_STATUSES = {'PENDING_UPDATE', 'IN_PROGRESS'}
+
+
+          def digest_period():
+              now = datetime.now(timezone.utc)
+              year, week, _ = now.isocalendar()
+              return f'{year}-W{week:02d}'
+
+
+          def put_summary(summary):
+              bucket = os.environ.get('OPS_REPORTS_BUCKET', '')
+              if not bucket or '{{' in bucket:
+                  logger.warning('OPS_REPORTS_BUCKET unset; skip S3 upload')
+                  return True
+              report_region = summary.get('region') or ''
+              if not report_region:
+                  logger.warning('REPORT_REGION unset; skip S3 upload')
+                  return False
+              region = os.environ.get('OPS_REPORTS_BUCKET_REGION', 'us-east-1')
+              key = (
+                  f"{summary['period']}/{summary['client']}/"
+                  f"{summary['cluster']}/{report_region}/"
+                  f"{summary['report_type']}.json"
+              )
+              try:
+                  boto3.client('s3', region_name=region).put_object(
+                      Bucket=bucket,
+                      Key=key,
+                      Body=json.dumps(summary, default=str),
+                      ContentType='application/json',
+                      ServerSideEncryption='AES256',
+                  )
+                  logger.info('Uploaded %s', key)
+                  return True
+              except Exception as exc:
+                  logger.exception('Failed to upload %s: %s', key, exc)
+                  return False
+
+
+          def build_summary(result):
+              items = [{
+                  'name': 'opensearch_software',
+                  'status': result['item_status'],
+                  'detail': result['detail'],
+              }]
+              return {
+                  'schema_version': 1,
+                  'client': CLIENT_ID,
+                  'account_id': os.environ.get('ACCOUNT_ID', ''),
+                  'cluster': EKS_CLUSTER_NAME,
+                  'region': os.environ.get(
+                      'REPORT_REGION',
+                      os.environ.get('AWS_REGION', os.environ.get('AWS_DEFAULT_REGION', '')),
+                  ),
+                  'report_type': 'opensearch_software_update',
+                  'generated_at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+                  'period': digest_period(),
+                  'status': result['status'],
+                  'counts': {
+                      'fail': len([i for i in items if i['status'] == 'fail']),
+                      'warn': len([i for i in items if i['status'] == 'warn']),
+                  },
+                  'items': items,
+                  'action': result['action'],
+                  'engine_version': result.get('engine_version'),
+              }
+
+
+          def apply_software_update(domain_name):
+              response = os_client.describe_domain(DomainName=domain_name)
+              domain = response['DomainStatus']
+              engine_version = domain.get('EngineVersion', 'Unknown')
+              opts = domain.get('ServiceSoftwareOptions', {})
+              update_available = bool(opts.get('UpdateAvailable', False))
+              update_status = opts.get('UpdateStatus', '') or ''
+              current_version = opts.get('CurrentVersion', 'Unknown')
+              new_version = opts.get('NewVersion', '')
+              processing = bool(domain.get('Processing', False))
+
+              base = {
+                  'engine_version': engine_version,
+                  'current_version': current_version,
+                  'new_version': new_version,
+                  'update_status': update_status,
+                  'processing': processing,
+              }
+
+              if processing:
+                  return {
+                      **base,
+                      'action': 'skip_processing',
+                      'status': 'ok',
+                      'item_status': 'ok',
+                      'detail': (
+                          f"Domain is Processing; left software at `{current_version}` "
+                          f"(engine `{engine_version}` unchanged)"
+                      ),
+                  }
+
+              if update_status in IN_PROGRESS_STATUSES:
+                  return {
+                      **base,
+                      'action': 'skip_in_progress',
+                      'status': 'ok',
+                      'item_status': 'ok',
+                      'detail': (
+                          f"Update already `{update_status}`: `{current_version}`"
+                          + (f" -> `{new_version}`" if new_version else '')
+                          + f" (engine `{engine_version}` unchanged)"
+                      ),
+                  }
+
+              if not update_available:
+                  return {
+                      **base,
+                      'action': 'skip_up_to_date',
+                      'status': 'ok',
+                      'item_status': 'ok',
+                      'detail': (
+                          f"No service software update available "
+                          f"(`{current_version}`, engine `{engine_version}`)"
+                      ),
+                  }
+
+              update_response = os_client.start_service_software_update(
+                  DomainName=domain_name,
+                  ScheduleAt='NOW',
+              )
+              started = update_response.get('ServiceSoftwareOptions', {})
+              started_status = started.get('UpdateStatus', update_status)
+              started_new = started.get('NewVersion', new_version)
+              return {
+                  **base,
+                  'action': 'started',
+                  'status': 'ok',
+                  'item_status': 'ok',
+                  'update_status': started_status,
+                  'new_version': started_new,
+                  'detail': (
+                      f"Queued service software update `{current_version}`"
+                      + (f" -> `{started_new}`" if started_new else '')
+                      + f" (Status: {started_status}; engine `{engine_version}` unchanged)"
+                  ),
+              }
+
+
+          def handler(event, context):
+              logger.info(
+                  'OpenSearch software update check for domain %s (software only)',
+                  OPENSEARCH_DOMAIN_NAME,
+              )
+              try:
+                  result = apply_software_update(OPENSEARCH_DOMAIN_NAME)
+              except Exception as exc:
+                  logger.exception('OpenSearch software update failed: %s', exc)
+                  result = {
+                      'action': 'error',
+                      'status': 'fail',
+                      'item_status': 'fail',
+                      'engine_version': None,
+                      'detail': str(exc),
+                  }
+              summary = build_summary(result)
+              uploaded = put_summary(summary)
+              logger.info(
+                  'OpenSearch software update action=%s status=%s',
+                  result['action'],
+                  summary['status'],
+              )
+              if not uploaded:
+                  raise RuntimeError('Failed to upload OpenSearch software update summary')
+              if result['action'] == 'error':
+                  raise RuntimeError(result['detail'])
+              return {'statusCode': 200, 'body': json.dumps(summary, default=str)}
+
+  OpenSearchSoftwareUpdateLambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: OpenSearchSoftwareAutoUpdateEnabled
+    DependsOn: OpenSearchSoftwareUpdateScheduleRule
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref OpenSearchSoftwareUpdateLambda
+      Principal: events.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/{{cluster_name}}-OpenSearchSoftwareUpdateSchedule"
+
+  OpenSearchSoftwareUpdateScheduleRule:
+    Type: AWS::Events::Rule
+    Condition: OpenSearchSoftwareAutoUpdateEnabled
+    Properties:
+      Name: "{{cluster_name}}-OpenSearchSoftwareUpdateSchedule"
+      Description: Sunday OpenSearch service software update for cluster {{cluster_name}} (Sun 11:00 PM ET / Mon 03:00 UTC during EDT; software patch only)
+      ScheduleExpression: cron(0 3 ? * MON *)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt OpenSearchSoftwareUpdateLambda.Arn
+          Id: OpenSearchSoftwareUpdateLambdaTarget
 
   KuberVolumeLifecyclePolicy:
     Type: AWS::DLM::LifecyclePolicy
@@ -700,10 +1038,14 @@ Resources:
 Outputs:
   OpenSearchDomainEndpoint:
     Value: !GetAtt OpenSearchDomain.DomainEndpoint
+  OpenSearchSoftwareUpdateLambdaArn:
+    Condition: OpenSearchSoftwareAutoUpdateEnabled
+    Value: !GetAtt OpenSearchSoftwareUpdateLambda.Arn
   S3BackupBucketLambdaArn:
     Value: !GetAtt [S3BackupBucketLambda, Arn]
     Condition: UseBackupRegion
   AuthoringWebACLArn:
+    Condition: AuthoringWebAclEnabled
     Value: !GetAtt AuthoringWebACL.Arn
   AuthoringBackendSecurityGroup:
     Value: !GetAtt AuthoringBackendSecurityGroup.GroupId

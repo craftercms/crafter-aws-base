@@ -7,6 +7,7 @@ aws:
     secretKey: {{#if aws.cloudformation.secret_key}}{{aws.cloudformation.secret_key}}{{else}}${aws.secretKey}{{/if}}
     stackName: ${aws.cloudformation.stackNamePrefix}-site-{{site_name}}
     s3SiteBucketName: ${aws.cloudformation.s3BucketNamePrefix}-site-{{site_name}}
+    s3BlobsBucketName: ${aws.cloudformation.s3BucketNamePrefix}-blobs-{{site_name}}
     s3Url: s3://${aws.cloudformation.s3SiteBucketName}/${environmentVersion}
   {{#if aws.threads}}
   threads:
@@ -38,7 +39,9 @@ target:
         templateParams:  
           SiteName: ${target.siteName}
           EnvironmentVersion: ${environmentVersion}
+          CreateBlobsBuckets: ${aws.cloudformation.enableBlobsBucketsCreation}
           S3SiteBucketName: ${aws.cloudformation.s3SiteBucketName}
+          S3BlobsBucketName: ${aws.cloudformation.s3BlobsBucketName}
           CloudFrontOriginAccessIdentityId: ${aws.cloudformation.cloudFrontOriginAccessIdentityId}
     {{#if source_target}}
     duplicate:
@@ -53,7 +56,9 @@ target:
         templateParams:  
           SiteName: ${target.siteName}
           EnvironmentVersion: ${environmentVersion}
+          CreateBlobsBuckets: ${aws.cloudformation.enableBlobsBucketsCreation}
           S3SiteBucketName: ${aws.cloudformation.s3SiteBucketName}
+          S3BlobsBucketName: ${aws.cloudformation.s3BlobsBucketName}
           CloudFrontOriginAccessIdentityId: ${aws.cloudformation.cloudFrontOriginAccessIdentityId}
       - hookName: waitTillCloudFormationStackUsableLifecycleHook
         region: ${aws.region}
@@ -83,6 +88,12 @@ target:
         accessKey: ${aws.cloudformation.accessKey}
         secretKey: ${aws.cloudformation.secretKey}
         bucketName: ${aws.cloudformation.s3SiteBucketName}
+      - hookName: clearS3BucketLifecycleHook
+        disabled: ${aws.cloudformation.disableS3BucketClear}
+        region: ${aws.region}
+        accessKey: ${aws.cloudformation.accessKey}
+        secretKey: ${aws.cloudformation.secretKey}
+        bucketName: ${aws.cloudformation.s3BlobsBucketName}
       - hookName: deleteCloudFormationLifecycleHook
         disabled: ${aws.cloudformation.disableCloudformationDeletion}
         region: ${aws.region}
@@ -129,5 +140,6 @@ target:
       {{#if notifications.addresses}}
       - processorName: mailNotificationProcessor
         status: {{#if notifications.status}}{{notifications.status}}{{else}}ON_TOTAL_FAILURE{{/if}}
+        mutePeriodMinutes: {{#if notifications.mute_period_minutes}}{{notifications.mute_period_minutes}}{{else}}60{{/if}}
         to: {{notifications.addresses}}
       {{/if}}

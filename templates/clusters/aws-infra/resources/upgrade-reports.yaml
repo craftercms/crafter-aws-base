@@ -82,6 +82,10 @@ Resources:
                 Action:
                   - sns:Publish
                 Resource: !Ref UpgradeReportSNSTopic
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: "arn:aws:s3:::{{ops_reports_bucket}}/*"
 
   WeeklyUpgradeReportLambda:
     Type: AWS::Lambda::Function
@@ -99,10 +103,15 @@ Resources:
       Role: !GetAtt WeeklyUpgradeReportLambdaRole.Arn
       Environment:
         Variables:
+          CLIENT_ID: "{{client_id}}"
+          ACCOUNT_ID: !Sub "${AWS::AccountId}"
+          REPORT_REGION: "{{aws_region}}"
           OPENSEARCH_DOMAIN_NAME: "{{cluster_name}}-opensearch"
           EKS_CLUSTER_NAME: "{{cluster_name}}"
           SNS_TOPIC_ARN: !Ref UpgradeReportSNSTopic
           EKS_VERSIONS_BEHIND_THRESHOLD: !Ref EksVersionsBehindThreshold
+          OPS_REPORTS_BUCKET: "{{ops_reports_bucket}}"
+          OPS_REPORTS_BUCKET_REGION: "{{ops_reports_bucket_region}}"
       Code:
         ZipFile: |
           import json
@@ -119,10 +128,12 @@ Resources:
           eks_client = boto3.client('eks')
           sns_client = boto3.client('sns')
 
+          CLIENT_ID = os.environ.get('CLIENT_ID', '')
           OPENSEARCH_DOMAIN_NAME = os.environ['OPENSEARCH_DOMAIN_NAME']
           EKS_CLUSTER_NAME = os.environ['EKS_CLUSTER_NAME']
           SNS_TOPIC_ARN = os.environ['SNS_TOPIC_ARN']
           EKS_VERSIONS_BEHIND_THRESHOLD = int(os.environ.get('EKS_VERSIONS_BEHIND_THRESHOLD', '2'))
+          CLIENT_CLUSTER = f"{CLIENT_ID}/{EKS_CLUSTER_NAME}" if CLIENT_ID else EKS_CLUSTER_NAME
 
 
           def _semver_key(version):
@@ -263,6 +274,104 @@ Resources:
                   return {'needs_upgrade': False, 'error': str(exc)}
 
 
+          def digest_period():
+              now = datetime.now(timezone.utc)
+              year, week, _ = now.isocalendar()
+              return f'{year}-W{week:02d}'
+
+
+          def put_summary(summary):
+              bucket = os.environ.get('OPS_REPORTS_BUCKET', '')
+              if not bucket or '{{' in bucket:
+                  logger.warning('OPS_REPORTS_BUCKET unset; skip S3 upload')
+                  return True
+              region = os.environ.get('OPS_REPORTS_BUCKET_REGION', 'us-east-1')
+              report_region = summary.get('region') or ''
+              if not report_region:
+                  logger.warning('REPORT_REGION unset; skip S3 upload')
+                  return False
+              key = (
+                  f"{summary['period']}/{summary['client']}/"
+                  f"{summary['cluster']}/{report_region}/"
+                  f"{summary['report_type']}.json"
+              )
+              try:
+                  boto3.client('s3', region_name=region).put_object(
+                      Bucket=bucket,
+                      Key=key,
+                      Body=json.dumps(summary, default=str),
+                      ContentType='application/json',
+                      ServerSideEncryption='AES256',
+                  )
+                  logger.info('Uploaded %s', key)
+                  return True
+              except Exception as exc:
+                  logger.exception('Failed to upload %s: %s', key, exc)
+                  return False
+
+
+          def build_summary(opensearch_result, eks_result):
+              os_findings = opensearch_result['has_findings']
+              eks_findings = eks_result.get('needs_upgrade', False)
+              check_errors = opensearch_result['errors'] + (
+                  [eks_result['error']] if eks_result.get('error') else []
+              )
+              items = []
+              if opensearch_result['software_update']['available']:
+                  items.append({
+                      'name': 'opensearch_software',
+                      'status': 'warn',
+                      'detail': opensearch_result['software_update'].get('details', 'update available'),
+                  })
+              if opensearch_result['engine_upgrade']['available']:
+                  targets = ', '.join(opensearch_result['engine_upgrade'].get('target_versions') or [])
+                  items.append({
+                      'name': 'opensearch_engine',
+                      'status': 'warn',
+                      'detail': f"{opensearch_result['engine_version']} -> {targets}",
+                  })
+              for pkg in opensearch_result['package_updates']:
+                  items.append({
+                      'name': pkg['name'],
+                      'status': 'warn',
+                      'detail': f"{pkg['current_version']} -> {pkg['available_version']}",
+                  })
+              if eks_findings:
+                  items.append({
+                      'name': 'eks',
+                      'status': 'warn',
+                      'detail': (
+                          f"{eks_result.get('current_version')} -> "
+                          f"{eks_result.get('latest_version')} "
+                          f"({eks_result.get('versions_behind')} behind)"
+                      ),
+                  })
+              for err in check_errors:
+                  items.append({'name': 'check_error', 'status': 'fail', 'detail': err})
+              if check_errors:
+                  status = 'fail'
+              elif os_findings or eks_findings:
+                  status = 'warn'
+              else:
+                  status = 'ok'
+              return {
+                  'schema_version': 1,
+                  'client': CLIENT_ID,
+                  'account_id': os.environ.get('ACCOUNT_ID', ''),
+                  'cluster': EKS_CLUSTER_NAME,
+                  'region': os.environ.get('REPORT_REGION', os.environ.get('AWS_REGION', os.environ.get('AWS_DEFAULT_REGION', ''))),
+                  'report_type': 'infra_upgrade',
+                  'generated_at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+                  'period': digest_period(),
+                  'status': status,
+                  'counts': {
+                      'fail': len([i for i in items if i['status'] == 'fail']),
+                      'warn': len([i for i in items if i['status'] == 'warn']),
+                  },
+                  'items': items,
+              }
+
+
           def build_report(opensearch_result, eks_result):
               now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
               os_findings = opensearch_result['has_findings']
@@ -272,11 +381,11 @@ Resources:
               has_findings = os_findings or eks_findings
 
               if has_errors:
-                  subject = f"Upgrade Report - {{cluster_name}} (incomplete)"
+                  subject = f"Upgrade Report - {CLIENT_CLUSTER} (incomplete)"
                   lines = [
                       'Weekly Infrastructure Upgrade Report',
                       '==================================================',
-                      f"Cluster: {{cluster_name}}",
+                      f"Cluster: {CLIENT_CLUSTER}",
                       f"Time:    {now}",
                       '',
                       'One or more upgrade checks could not complete. Results may be incomplete.',
@@ -286,22 +395,22 @@ Resources:
                       lines.append(f"   Error: {err}")
                   lines.append('')
               elif has_findings:
-                  subject = f"Upgrade Report - {{cluster_name}}"
+                  subject = f"Upgrade Report - {CLIENT_CLUSTER}"
                   lines = [
                       'Weekly Infrastructure Upgrade Report',
                       '==================================================',
-                      f"Cluster: {{cluster_name}}",
+                      f"Cluster: {CLIENT_CLUSTER}",
                       f"Time:    {now}",
                       '',
                       'ACTION REQUIRED - the following upgrades are available:',
                       '',
                   ]
               else:
-                  subject = f"Upgrade Report - {{cluster_name}} (up to date)"
+                  subject = f"Upgrade Report - {CLIENT_CLUSTER} (up to date)"
                   lines = [
                       'Weekly Infrastructure Upgrade Report',
                       '==================================================',
-                      f"Cluster: {{cluster_name}}",
+                      f"Cluster: {CLIENT_CLUSTER}",
                       f"Time:    {now}",
                       '',
                       'Everything is up-to-date. No upgrades required.',
@@ -374,23 +483,15 @@ Resources:
               logger.info('Running weekly upgrade report for cluster %s', EKS_CLUSTER_NAME)
               opensearch_result = check_opensearch(OPENSEARCH_DOMAIN_NAME)
               eks_result = check_eks_upgrade(EKS_CLUSTER_NAME)
-              subject, body = build_report(opensearch_result, eks_result)
-              sns_client.publish(
-                  TopicArn=SNS_TOPIC_ARN,
-                  Subject=subject[:100],
-                  Message=body,
+              summary = build_summary(opensearch_result, eks_result)
+              uploaded = put_summary(summary)
+              logger.info(
+                  'Upgrade report status=%s; skip SNS (weekly digest only)',
+                  summary['status'],
               )
-              logger.info('Published upgrade report: %s', subject)
-              return {
-                  'statusCode': 200,
-                  'body': json.dumps({
-                      'cluster': EKS_CLUSTER_NAME,
-                      'openSearchDomain': OPENSEARCH_DOMAIN_NAME,
-                      'openSearchFindings': opensearch_result['has_findings'],
-                      'eksUpgradeRecommended': eks_result.get('needs_upgrade', False),
-                      'checkErrors': opensearch_result['errors'] + ([eks_result['error']] if eks_result.get('error') else []),
-                  }),
-              }
+              if not uploaded:
+                  raise RuntimeError('Failed to upload upgrade report summary')
+              return {'statusCode': 200, 'body': json.dumps(summary, default=str)}
 
   WeeklyUpgradeReportLambdaInvokePermission:
     Type: AWS::Lambda::Permission
@@ -407,8 +508,8 @@ Resources:
     Condition: UpgradeReportsEnabled
     Properties:
       Name: "{{cluster_name}}-WeeklyUpgradeReportSchedule"
-      Description: Weekly OpenSearch and EKS upgrade check for cluster {{cluster_name}}
-      ScheduleExpression: cron(0 9 ? * MON *)
+      Description: Weekly OpenSearch and EKS upgrade check for cluster {{cluster_name}} (Wed 10:00 AM ET / 14:00 UTC)
+      ScheduleExpression: cron(0 14 ? * WED *)
       State: ENABLED
       Targets:
         - Arn: !GetAtt WeeklyUpgradeReportLambda.Arn

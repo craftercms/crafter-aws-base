@@ -11,3 +11,5 @@ export AWS_PROFILE=
 export AWS_DEFAULT_REGION=
 # Required
 export CLOUDFRONT_NOTIFICATIONS_EMAIL_ADDRESS=cloud-ops@craftersoftware.com
+# Required. Short lowercase client id (for example client-a). Names {CLIENT_ID}-crafter-opensearch-manual-snapshots.
+export CLIENT_ID=

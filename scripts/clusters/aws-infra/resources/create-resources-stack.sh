@@ -31,14 +31,19 @@ if [ -z "$resources_stack" ] || [ "$resources_stack" == "null" ]; then
     private_subnet_ids=$(echo $eks_stack | jq -r '.Outputs[] | select(.OutputKey=="SubnetsPrivate").OutputValue')
     private_route_table_ids=$(aws ec2 describe-route-tables --region $AWS_DEFAULT_REGION --filters "Name=vpc-id,Values=$vpc_id" "Name=tag:Name,Values=eksctl-${CLUSTER_NAME}-cluster/Private*" | jq -r '.RouteTables[].RouteTableId' | paste -s -d, -)
 
+    # Resolved here instead of in the template so later stack updates keep the same AMI
+    # (UsePreviousValue) and don't replace the bastion. Bump it deliberately when rolling a new image.
+    bastion_ami_id=$(aws ssm get-parameter --name /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64 \
+        --query 'Parameter.Value' --output text)
+
     aws cloudformation create-stack --stack-name $RESOURCES_STACK_NAME --capabilities CAPABILITY_NAMED_IAM \
         --template-body file://$RESOURCES_STACK_CONFIG_FILE --parameters \
         ParameterKey=VpcId,ParameterValue=$vpc_id \
+        ParameterKey=BastionAmiId,ParameterValue=$bastion_ami_id \
         ParameterKey=PrivateSubnetIds,ParameterValue=${private_subnet_ids//,/\\,} \
         ParameterKey=PrivateRouteTableIds,ParameterValue=${private_route_table_ids//,/\\,} \
         ParameterKey=BackupRegion,ParameterValue=$AWS_BACKUP_REGION \
         ParameterKey=BackupRegionBucketNamePrefix,ParameterValue=$S3_BACKUP_REGION_BUCKET_NAME_PREFIX \
-        ParameterKey=DeliveryInstanceCount,ParameterValue=$DELIVERY_INSTANCE_COUNT \
         ParameterKey=OpenSearchSingleNodeCluster,ParameterValue=$OPEN_SEARCH_SINGLE_NODE_CLUSTER \
         ParameterKey=OpenSearchInstanceType,ParameterValue=$OPEN_SEARCH_INSTANCE_TYPE \
         ParameterKey=OpenSearchVolumeSize,ParameterValue=$OPEN_SEARCH_VOLUME_SIZE
@@ -127,13 +132,6 @@ if [ -z "$volume_backup_reports_stack" ] || [ "$volume_backup_reports_stack" == 
     if [ "${ENABLE_VOLUME_BACKUP_REPORTS:-true}" != "true" ]; then
         cecho "Volume backup reports disabled (ENABLE_VOLUME_BACKUP_REPORTS=false). Skipping stack creation." "info"
     else
-        notifications_export=$(aws cloudformation list-exports --region $AWS_DEFAULT_REGION \
-            --query "Exports[?Name=='${CLUSTER_NAME}-NotificationsSNSTopicArn'].Value" --output text)
-        if [ -z "$notifications_export" ] || [ "$notifications_export" == "None" ]; then
-            cecho "Volume backup reports require the notifications stack export ${CLUSTER_NAME}-NotificationsSNSTopicArn. Deploy notifications first." "error"
-            exit 1
-        fi
-
         aws cloudformation create-stack --region $AWS_DEFAULT_REGION --stack-name $VOLUME_BACKUP_REPORTS_STACK_NAME \
             --capabilities CAPABILITY_NAMED_IAM --template-body file://$VOLUME_BACKUP_REPORTS_STACK_CONFIG_FILE --parameters \
             ParameterKey=VolumeBackupReportsEnabled,ParameterValue=true

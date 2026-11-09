@@ -12,6 +12,13 @@ metadata:
     alb.ingress.kubernetes.io/healthcheck-path: /studio/api/2/monitoring/status.json?token={{crafter_management_token}}
     alb.ingress.kubernetes.io/healthcheck-interval-seconds: '30'
     alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=600
+    alb.ingress.kubernetes.io/actions.block-xml-request: >
+      {"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"415","messageBody":"Unsupported Media Type"}}
+    # Applies to any request method: no endpoint below accepts XML, and the ALB cannot inspect bodies.
+    # The *xml* pattern also covers the application/*+xml types that select an XML message converter.
+    # Studio content writes use XML bodies, but only under /studio/api, so they are unaffected.
+    alb.ingress.kubernetes.io/conditions.block-xml-request: >
+      [{"field":"http-header","httpHeaderConfig":{"httpHeaderName":"Content-Type","values":["*xml*"]}}]
     alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS13-1-2-Res-2021-06
     alb.ingress.kubernetes.io/tags: craftercms:environment={{environment}},craftercms:prod={{prod_env}}
     # # Uncomment after generating the SSL cert and validating it
@@ -26,6 +33,34 @@ spec:
   rules:
     - http:
         paths:
+          - path: /api/1/site/search/search*
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: block-xml-request
+                port:
+                  name: use-annotation
+          - path: /api/1/site/elasticsearch/search*
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: block-xml-request
+                port:
+                  name: use-annotation
+          - path: /api/1/site/graphql*
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: block-xml-request
+                port:
+                  name: use-annotation
+          - path: /api/1/profile/set*
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: block-xml-request
+                port:
+                  name: use-annotation
           - path: /*
             pathType: ImplementationSpecific
             backend:
@@ -454,18 +489,12 @@ spec:
               value: "{{enable_backup_buckets_creation}}"
             - name: ENABLE_S3_ORIGIN_FAILOVER
               value: "{{enable_s3_origin_failover}}"
-            - name: ENABLE_WAF
-              value: "{{enable_waf}}"
-            - name: WEB_ACL_ARN
-              value: "{{web_acl_arn}}"
-            - name: WAF_RATE_LIMIT
-              value: "{{waf_rate_limit}}"
-            - name: ENABLE_WAF_BOT_CONTROL
-              value: "{{enable_waf_bot_control}}"
-            - name: WAF_ALLOWED_IP_ADDRESSES
-              value: "{{waf_allowed_ip_addresses}}"
-            - name: WAF_BLOCKED_IP_ADDRESSES
-              value: "{{waf_blocked_ip_addresses}}"
+            - name: ENABLE_SITE_WAF
+              value: "{{enable_site_waf}}"
+            - name: SITE_WAF_RATE_LIMIT_PER_IP
+              value: "{{site_waf_rate_limit_per_ip}}"
+            - name: ENABLE_SITE_WAF_BOT_CONTROL
+              value: "{{enable_site_waf_bot_control}}"
             - name: DISABLE_BUCKET_CLEAR_ON_TARGET_DELETION
               value: "{{disable_bucket_clear_on_target_deletion}}"
             - name: DISABLE_CLOUDFORMATION_DELETION_ON_TARGET_DELETION
@@ -546,6 +575,8 @@ spec:
         # - name: git-https-server
         #   image: craftercms/git_https_server:latest
         #   imagePullPolicy: "Always"
+        #   securityContext:
+        #     allowPrivilegeEscalation: false
         #   resources:
         #     requests:
         #       cpu: 1

@@ -1,0 +1,277 @@
+# Weekly ops reports hub.
+# Deploy ONCE to the central ops/infra account (us-east-1).
+# Do not copy this template into client clusters/ via init-config-files.sh.
+#
+# Client account IDs allowed to upload reports are supplied at deploy time via
+# ClientReporterAccountIds (keep real IDs out of this public repo).
+#
+# summary.json schema_version 1 (producers write, aggregator renders):
+#   schema_version, client, account_id, cluster, report_type, generated_at, period
+#   status: ok | fail | warn
+#   counts (object), items[{name,status,detail}], artifacts[] optional
+# S3 key: {period}/{client}/{cluster}/{region}/{report_type}.json
+# Legacy 4-part keys (no region) are still read until every producer stack is updated.
+# period: ISO week of the Wednesday digest (YYYY-Www).
+# HTML object: {period}/report-YYYY-MM-DD.html (Monday of that ISO week).
+# Digest email: SES HTML so the inbox shows report-YYYY-MM-DD instead of the
+# presigned query string. Presigned URLs use a dedicated IAM user (not Lambda
+# STS) so links honor PRESIGN_TTL_SECONDS (default 7 days). Fallback SNS is
+# crafter-prod-v2-notifications.
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Central weekly ops reports bucket and aggregator Lambda. Digest email is SES HTML with a named report link.
+
+Parameters:
+  ReportsBucketName:
+    Type: String
+    Default: crafter-ops-weekly-reports
+  DigestFromAddress:
+    Type: String
+    Default: noreply@craftercloud.io
+  DigestToAddress:
+    Type: String
+    Default: cloud-ops@craftercms.com
+  AggregatorCodeBucket:
+    Type: String
+    Description: Bucket that holds the packaged aggregator zip (usually cloud-management-tools)
+  AggregatorCodeKey:
+    Type: String
+    Default: ops/weekly-reports-hub/aggregator.zip
+  PresignTtlSeconds:
+    Type: Number
+    Default: 604800
+    MinValue: 3600
+    MaxValue: 604800
+  ClientReporterAccountIds:
+    Type: CommaDelimitedList
+    Default: '111122223333'
+    Description: AWS account IDs allowed to upload weekly report objects. Supply real IDs privately; do not commit client account inventories to this repo.
+
+Resources:
+  ReportsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Ref ReportsBucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+            BucketKeyEnabled: true
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireWeeklyReportObjects
+            Status: Enabled
+            Prefix: '20'
+            ExpirationInDays: 90
+            NoncurrentVersionExpirationInDays: 30
+      NotificationConfiguration:
+        EventBridgeConfiguration:
+          EventBridgeEnabled: true
+
+  ReportsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ReportsBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource:
+              - !GetAtt ReportsBucket.Arn
+              - !Sub '${ReportsBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+          - Sid: GenericClientReportWrite
+            Effect: Allow
+            Principal: '*'
+            Action:
+              - s3:PutObject
+              - s3:AbortMultipartUpload
+            Resource: !Sub '${ReportsBucket.Arn}/*/*'
+            Condition:
+              ForAnyValue:StringEquals:
+                aws:PrincipalAccount: !Ref ClientReporterAccountIds
+
+  ReportsPresignerUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: crafter-ops-weekly-reports-presigner
+      Policies:
+        - PolicyName: PresignHtmlReports
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource:
+                  - !Sub '${ReportsBucket.Arn}/*/index.html'
+                  - !Sub '${ReportsBucket.Arn}/*/rollup.html'
+                  - !Sub '${ReportsBucket.Arn}/*/report-*.html'
+
+  ReportsPresignerAccessKey:
+    Type: AWS::IAM::AccessKey
+    Properties:
+      UserName: !Ref ReportsPresignerUser
+
+  ReportsPresignerSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: crafter-ops-weekly-reports/presigner
+      Description: Long-lived IAM credentials used to presign weekly report HTML links
+      SecretString: !Sub '{"access_key_id":"${ReportsPresignerAccessKey}","secret_access_key":"${ReportsPresignerAccessKey.SecretAccessKey}"}'
+
+  AggregatorLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: crafter-ops-weekly-reports-aggregator
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service: lambda.amazonaws.com
+      Policies:
+        - PolicyName: AggregatorPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*'
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !GetAtt ReportsBucket.Arn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub '${ReportsBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !ImportValue crafter-prod-v2-NotificationsSNSTopicArn
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:GenerateDataKey*
+                Resource: !Sub 'arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/*'
+                Condition:
+                  StringEquals:
+                    kms:ViaService: !Sub 'sns.${AWS::Region}.amazonaws.com'
+                  ForAnyValue:StringEquals:
+                    kms:ResourceAliases: alias/aws/sns
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                Resource:
+                  - !Sub 'arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/${DigestFromAddress}'
+                  - !Sub 'arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/craftercloud.io'
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Ref ReportsPresignerSecret
+
+  AggregatorLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: crafter-ops-weekly-reports-aggregator
+      Runtime: python3.13
+      Handler: index.handler
+      Timeout: 120
+      MemorySize: 256
+      Role: !GetAtt AggregatorLambdaRole.Arn
+      Environment:
+        Variables:
+          OPS_REPORTS_BUCKET: !Ref ReportsBucket
+          EXPECTED_PRODUCERS_KEY: config/expected-producers.json
+          SNS_TOPIC_ARN: !ImportValue crafter-prod-v2-NotificationsSNSTopicArn
+          DIGEST_FROM_ADDRESS: !Ref DigestFromAddress
+          DIGEST_TO_ADDRESS: !Ref DigestToAddress
+          PRESIGN_TTL_SECONDS: !Ref PresignTtlSeconds
+          PRESIGN_SECRET_ARN: !Ref ReportsPresignerSecret
+      Code:
+        S3Bucket: !Ref AggregatorCodeBucket
+        S3Key: !Ref AggregatorCodeKey
+      Tags:
+        - Key: craftercms:component
+          Value: weekly-ops-reports
+
+  WeeklyDigestScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: crafter-ops-weekly-reports-digest
+      Description: Weekly ops reports digest (Wed 12:00 PM ET / 16:00 UTC)
+      ScheduleExpression: cron(0 16 ? * WED *)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt AggregatorLambda.Arn
+          Id: WeeklyReportsAggregatorTarget
+
+  WeeklyDigestInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref AggregatorLambda
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt WeeklyDigestScheduleRule.Arn
+
+  JsonUploadedRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: crafter-ops-weekly-reports-json-uploaded
+      Description: Refresh HTML when a producer uploads summary.json
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.s3
+        detail-type:
+          - Object Created
+        detail:
+          bucket:
+            name:
+              - !Ref ReportsBucket
+          object:
+            key:
+              - suffix: .json
+      Targets:
+        - Arn: !GetAtt AggregatorLambda.Arn
+          Id: WeeklyReportsAggregatorOnJson
+
+  JsonUploadedInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref AggregatorLambda
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt JsonUploadedRule.Arn
+
+Outputs:
+  ReportsBucketName:
+    Value: !Ref ReportsBucket
+  ReportsBucketArn:
+    Value: !GetAtt ReportsBucket.Arn
+  NotificationsSNSTopicArn:
+    Description: Existing common notifications topic used for the weekly digest
+    Value: !ImportValue crafter-prod-v2-NotificationsSNSTopicArn
+  AggregatorLambdaArn:
+    Value: !GetAtt AggregatorLambda.Arn
+  ReportsPresignerSecretArn:
+    Description: Secrets Manager ARN for digest HTML presign credentials
+    Value: !Ref ReportsPresignerSecret
