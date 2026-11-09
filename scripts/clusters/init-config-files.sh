@@ -5,15 +5,7 @@ PRGDIR=$(cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd)
 
 . "$PRGDIR/set-config.sh"
 
-function create_cidr_list() {
-  IFS=','
-  read -ra strarr <<< "$CLUSTER_PUBLIC_ACCESS_CIDRS"
-  printf -v cluster_public_access_cidr_list '"%s",' "${strarr[@]}"
-  cluster_public_access_cidr_list="[${cluster_public_access_cidr_list%,}]"
-  echo $cluster_public_access_cidr_list | sed 's/ /,/g'
-}
-
-cluster_public_access_cidr_list=$(create_cidr_list)
+cluster_public_access_cidr_list=$(create_csv_list "$CLUSTER_PUBLIC_ACCESS_CIDRS")
 acct_resources_stack=$(aws cloudformation describe-stacks --region $ACCOUNT_RESOURCES_REGION --stack-name crafter-account-resources | jq '.Stacks[0]')
 default_delivery_cloudfront_caching_policy_id=$(echo $acct_resources_stack | jq -r '.Outputs[] | select(.OutputKey=="DefaultDeliveryCloudFrontCachingPolicy").OutputValue')
 default_delivery_cloudfront_origin_request_policy_id=$(echo $acct_resources_stack | jq -r '.Outputs[] | select(.OutputKey=="DefaultDeliveryCloudFrontOriginRequestPolicy").OutputValue')
@@ -66,12 +58,9 @@ find . -type f ! -name setup.sh -exec sed -i "s/{{delivery_instance_count}}/$DEL
 find . -type f ! -name setup.sh -exec sed -i "s/{{enable_blobs_buckets_creation}}/$ENABLE_BLOBS_BUCKETS_CREATION/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s/{{enable_backup_buckets_creation}}/$ENABLE_BACKUP_BUCKETS_CREATION/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s/{{enable_s3_origin_failover}}/$ENABLE_S3_ORIGIN_FAILOVER/g" {} \;
-find . -type f ! -name setup.sh -exec sed -i "s/{{enable_waf}}/$ENABLE_WAF/g" {} \;
-find . -type f ! -name setup.sh -exec sed -i "s~{{web_acl_arn}}~$WEB_ACL_ARN~g" {} \;
-find . -type f ! -name setup.sh -exec sed -i "s/{{waf_rate_limit}}/$WAF_RATE_LIMIT/g" {} \;
-find . -type f ! -name setup.sh -exec sed -i "s/{{enable_waf_bot_control}}/$ENABLE_WAF_BOT_CONTROL/g" {} \;
-find . -type f ! -name setup.sh -exec sed -i "s~{{waf_allowed_ip_addresses}}~$WAF_ALLOWED_IP_ADDRESSES~g" {} \;
-find . -type f ! -name setup.sh -exec sed -i "s~{{waf_blocked_ip_addresses}}~$WAF_BLOCKED_IP_ADDRESSES~g" {} \;
+find . -type f ! -name setup.sh -exec sed -i "s/{{enable_site_waf}}/$ENABLE_SITE_WAF/g" {} \;
+find . -type f ! -name setup.sh -exec sed -i "s/{{site_waf_rate_limit_per_ip}}/$SITE_WAF_RATE_LIMIT_PER_IP/g" {} \;
+find . -type f ! -name setup.sh -exec sed -i "s/{{enable_site_waf_bot_control}}/$ENABLE_SITE_WAF_BOT_CONTROL/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s/{{disable_bucket_clear_on_target_deletion}}/$DISABLE_BUCKET_CLEAR_ON_TARGET_DELETION/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s/{{disable_cloudformation_deletion_on_target_deletion}}/$DISABLE_CLOUDFORMATION_DELETION_ON_TARGET_DELETION/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s~{{vpc_cidr}}~$VPC_CIDR~g" {} \;
@@ -125,6 +114,8 @@ find . -type f ! -name setup.sh -exec sed -i "s~{{upgrade_nodes_cron}}~${UPGRADE
 find . -type f ! -name setup.sh -exec sed -i "s~{{upgrade_nodes_cron_tz}}~${UPGRADE_NODES_CRON_TZ}~g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s/{{upgrade_nodes_parallelism}}/${UPGRADE_NODES_PARALLELISM:-1}/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s/{{eksctl_version}}/${EKSCTL_VERSION}/g" {} \;
+find . -type f ! -name setup.sh -exec sed -i "s/{{ops_reports_bucket}}/${OPS_REPORTS_BUCKET:-crafter-ops-weekly-reports}/g" {} \;
+find . -type f ! -name setup.sh -exec sed -i "s/{{ops_reports_bucket_region}}/${OPS_REPORTS_BUCKET_REGION:-us-east-1}/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s~{{cluster_logs_s3_bucket_name}}~${CLUSTER_LOGS_S3_BUCKET_NAME}~g" {} \;
 # S3 Log Forwarding Config
 # find . -type f ! -name setup.sh -exec sed -i "s~{{cluster_logs_s3_bucket_name}}~${CLUSTER_LOGS_S3_BUCKET_NAME}~g" {} \;

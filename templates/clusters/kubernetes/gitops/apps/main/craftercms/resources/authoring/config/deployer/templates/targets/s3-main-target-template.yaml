@@ -61,12 +61,9 @@ target:
           CloudFrontSecretHeaderValue: ${aws.cloudformation.cloudfrontSecretHeaderValue}
           CloudFrontOriginAccessIdentityId: ${aws.cloudformation.cloudFrontOriginAccessIdentityId}
           CloudFrontLoggingS3BucketName: ${aws.cloudformation.cloudFrontLoggingS3BucketName}
-          EnableWaf: ${aws.cloudformation.enableWaf}
-          WebACLArn: ${aws.cloudformation.webACLArn}
-          WafRateLimit: ${aws.cloudformation.wafRateLimit}
-          EnableWafBotControl: ${aws.cloudformation.enableWafBotControl}
-          WafAllowedIpAddresses: ${aws.cloudformation.wafAllowedIpAddresses}
-          WafBlockedIpAddresses: ${aws.cloudformation.wafBlockedIpAddresses}
+          EnableSiteWaf: ${aws.cloudformation.enableSiteWaf}
+          SiteWafRateLimitPerIp: ${aws.cloudformation.siteWafRateLimitPerIp}
+          EnableSiteWafBotControl: ${aws.cloudformation.enableSiteWafBotControl}
     {{#if source_target}}
     duplicate:
       - hookName: duplicateIndexLifecycleHook
@@ -97,12 +94,9 @@ target:
           CloudFrontSecretHeaderValue: ${aws.cloudformation.cloudfrontSecretHeaderValue}
           CloudFrontOriginAccessIdentityId: ${aws.cloudformation.cloudFrontOriginAccessIdentityId}
           CloudFrontLoggingS3BucketName: ${aws.cloudformation.cloudFrontLoggingS3BucketName}
-          EnableWaf: ${aws.cloudformation.enableWaf}
-          WebACLArn: ${aws.cloudformation.webACLArn}
-          WafRateLimit: ${aws.cloudformation.wafRateLimit}
-          EnableWafBotControl: ${aws.cloudformation.enableWafBotControl}
-          WafAllowedIpAddresses: ${aws.cloudformation.wafAllowedIpAddresses}
-          WafBlockedIpAddresses: ${aws.cloudformation.wafBlockedIpAddresses}
+          EnableSiteWaf: ${aws.cloudformation.enableSiteWaf}
+          SiteWafRateLimitPerIp: ${aws.cloudformation.siteWafRateLimitPerIp}
+          EnableSiteWafBotControl: ${aws.cloudformation.enableSiteWafBotControl}
       - hookName: waitTillCloudFormationStackUsableLifecycleHook
         region: ${aws.region}
         accessKey: ${aws.cloudformation.accessKey}
@@ -192,5 +186,6 @@ target:
       {{#if notifications.addresses}}
       - processorName: mailNotificationProcessor
         status: {{#if notifications.status}}{{notifications.status}}{{else}}ON_TOTAL_FAILURE{{/if}}
+        mutePeriodMinutes: {{#if notifications.mute_period_minutes}}{{notifications.mute_period_minutes}}{{else}}60{{/if}}
         to: {{notifications.addresses}}
       {{/if}}

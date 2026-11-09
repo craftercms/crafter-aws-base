@@ -29,9 +29,12 @@ Parameters:
   PagerDutyIntegrationUrl:
     Type: String
     Default: ''
+  # Sunday 9-11 pm ET maintenance window. Metric math DAY/HOUR are UTC, so the window
+  # falls on Monday: 01:00-03:59 UTC under EDT, 02:00-04:59 UTC under EST. Hours 1-4
+  # cover both, at the cost of one extra hour on the edge outside the current DST offset.
   BlackoutWindowDay:
     Type: String
-    Default: 7
+    Default: 1
     AllowedValues:
       - 1
       - 2
@@ -42,10 +45,10 @@ Parameters:
       - 7
   BlackoutWindowStartHour:
     Type: String
-    Default: 16
+    Default: 1
   BlackoutWindowEndHour:
     Type: String
-    Default: 17
+    Default: 4
 
 Conditions:
   AuthoringHealthcheckHostnameSpecified:
@@ -94,7 +97,7 @@ Resources:
       AlarmName: {{client_id}}/{{cluster_name}}/{{aws_region}}/authoring-healthcheck
       AlarmDescription: Authoring in {{client_id}}/{{cluster_name}}/{{aws_region}} is unhealthy
       Metrics:
-        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 1, m1)"
+        - Expression: !Sub "IF((DAY(FILL(m1,1)) == ${BlackoutWindowDay} AND (HOUR(FILL(m1,1)) >= ${BlackoutWindowStartHour} AND HOUR(FILL(m1,1)) <= ${BlackoutWindowEndHour})), 1, m1)"
           Id: e1
           Period: '60'
           ReturnData: True
@@ -133,7 +136,7 @@ Resources:
       AlarmName: {{client_id}}/{{cluster_name}}/{{aws_region}}/delivery-healthcheck
       AlarmDescription: Delivery in {{client_id}}/{{cluster_name}}/{{aws_region}} is unhealthy
       Metrics:
-        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 1, m1)"
+        - Expression: !Sub "IF((DAY(FILL(m1,1)) == ${BlackoutWindowDay} AND (HOUR(FILL(m1,1)) >= ${BlackoutWindowStartHour} AND HOUR(FILL(m1,1)) <= ${BlackoutWindowEndHour})), 1, m1)"
           Id: e1
           Period: '60'
           ReturnData: True

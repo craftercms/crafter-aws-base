@@ -16,18 +16,93 @@ data:
     RESULTS_DIR="$(mktemp -d)"
     NOTIFIED_ON_ERROR=0
 
+    client_cluster() {
+      if [[ -n "${CLIENT_ID:-}" ]]; then
+        echo "${CLIENT_ID}/${CLUSTER_NAME}"
+      else
+        echo "${CLUSTER_NAME:-unknown}"
+      fi
+    }
+
     send_notification() {
       local status="$1"
       local body="$2"
-      if [[ -z "${SNS_TOPIC_ARN:-}" || "${SNS_TOPIC_ARN}" == "null" ]]; then
-        echo "SNS topic not configured; skipping notification (status: ${status})"
+      echo "Skipping SNS for status ${status} (weekly digest only)"
+      return 0
+    }
+
+    digest_period() {
+      # Next Wednesday's ISO week so Sunday jobs land in that week's digest.
+      local dow days
+      dow=$(date -u +%u)
+      days=$(( (3 - dow + 7) % 7 ))
+      if [[ "$days" -eq 0 ]]; then
+        days=7
+      fi
+      date -u -d "+${days} days" +%G-W%V
+    }
+
+    upload_summary() {
+      local status="$1"
+      shift
+      local -a item_args=("$@")
+      if [[ -z "${OPS_REPORTS_BUCKET:-}" || "${OPS_REPORTS_BUCKET}" == *'{{'* ]]; then
+        echo "OPS_REPORTS_BUCKET unset; skip S3 upload"
         return 0
       fi
-      aws sns publish \
-        --region "$AWS_REGION" \
-        --topic-arn "$SNS_TOPIC_ARN" \
-        --subject "Nodegroup upgrade - ${CLUSTER_NAME} - ${status}" \
-        --message "$body"
+      local period generated_at key tmp
+      period="$(digest_period)"
+      generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      tmp="$(mktemp)"
+      jq -n \
+        --arg client "${CLIENT_ID:-unknown}" \
+        --arg account_id "${ACCOUNT_ID:-}" \
+        --arg cluster "${CLUSTER_NAME:-unknown}" \
+        --arg region "${AWS_REGION:-${AWS_DEFAULT_REGION:-}}" \
+        --arg generated_at "$generated_at" \
+        --arg period "$period" \
+        --arg status "$status" \
+        '{
+          schema_version: 1,
+          client: $client,
+          account_id: $account_id,
+          cluster: $cluster,
+          region: $region,
+          report_type: "eks_node_upgrade",
+          generated_at: $generated_at,
+          period: $period,
+          status: $status,
+          counts: {fail: 0, success: 0},
+          items: []
+        }' >"$tmp"
+      local name item_status
+      while [[ ${#item_args[@]} -gt 0 ]]; do
+        name="${item_args[0]}"
+        item_status="${item_args[1]}"
+        item_args=("${item_args[@]:2}")
+        jq --arg name "$name" --arg st "$item_status" \
+          '.items += [{name: $name, status: $st, detail: $st}]
+           | if $st == "fail" then .counts.fail += 1 else .counts.success += 1 end' \
+          "$tmp" >"${tmp}.next"
+        mv "${tmp}.next" "$tmp"
+      done
+      local report_region="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
+      if [[ -z "$report_region" ]]; then
+        echo "AWS_REGION unset; skip S3 upload" >&2
+        rm -f "$tmp"
+        return 1
+      fi
+      key="${period}/${CLIENT_ID:-unknown}/${CLUSTER_NAME}/${report_region}/eks_node_upgrade.json"
+      local upload_status=0
+      aws s3 cp "$tmp" "s3://${OPS_REPORTS_BUCKET}/${key}" \
+        --region "${OPS_REPORTS_BUCKET_REGION:-us-east-1}" \
+        --sse AES256 \
+        --content-type application/json || upload_status=$?
+      rm -f "$tmp"
+      if [[ $upload_status -ne 0 ]]; then
+        return "$upload_status"
+      fi
+      echo "Uploaded s3://${OPS_REPORTS_BUCKET}/${key}"
     }
 
     on_error() {
@@ -36,8 +111,9 @@ data:
         exit "$exit_code"
       fi
       NOTIFIED_ON_ERROR=1
-      local report="Weekly nodegroup upgrade failed for cluster ${CLUSTER_NAME:-unknown}: unexpected error (exit ${exit_code}) at line ${BASH_LINENO[0]:-unknown}."
+      local report="Weekly nodegroup upgrade failed for $(client_cluster): unexpected error (exit ${exit_code}) at line ${BASH_LINENO[0]:-unknown}."
       echo "$report" >&2
+      upload_summary "fail" "job" "fail" || true
       send_notification "failure" "$report" || true
       exit "$exit_code"
     }
@@ -77,9 +153,10 @@ data:
     )
 
     if [[ ${#NODEGROUPS[@]} -eq 0 || -z "${NODEGROUPS[0]:-}" ]]; then
-      report="Weekly nodegroup upgrade failed for cluster ${CLUSTER_NAME}: no managed nodegroups found."
+      report="Weekly nodegroup upgrade failed for $(client_cluster): no managed nodegroups found."
       echo "$report"
       NOTIFIED_ON_ERROR=1
+      upload_summary "fail" "managed_nodegroups" "fail" || true
       send_notification "failure" "$report" || true
       exit 1
     fi
@@ -103,7 +180,7 @@ data:
       fi
     done
 
-    report="Weekly nodegroup upgrade report for cluster ${CLUSTER_NAME}."
+    report="Weekly nodegroup upgrade report for $(client_cluster)."
     report+=$(printf '\n\nNodegroups upgraded successfully (%s):' "${#successes[@]}")
     if [[ ${#successes[@]} -gt 0 ]]; then
       report+=$(printf '\n  - %s' "${successes[@]}")
@@ -119,13 +196,21 @@ data:
 
     echo "$report"
 
+    summary_args=()
+    for nodegroup in "${successes[@]}"; do
+      summary_args+=("$nodegroup" "ok")
+    done
+    for nodegroup in "${failures[@]}"; do
+      summary_args+=("$nodegroup" "fail")
+    done
     if [[ ${#failures[@]} -gt 0 ]]; then
+      upload_summary "fail" "${summary_args[@]}" || true
       NOTIFIED_ON_ERROR=1
       send_notification "failure" "$report" || true
       exit 1
     fi
 
-    send_notification "success" "$report" || true
+    upload_summary "ok" "${summary_args[@]}"
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -180,6 +265,8 @@ spec:
                 - /bin/bash
                 - /scripts/upgrade-nodegroups.sh
               env:
+                - name: CLIENT_ID
+                  value: "{{client_id}}"
                 - name: CLUSTER_NAME
                   value: "{{cluster_name}}"
                 - name: AWS_REGION
@@ -190,6 +277,12 @@ spec:
                   value: "{{nodegroup_upgrade_sns_topic_arn}}"
                 - name: AWS_DEFAULT_REGION
                   value: "{{aws_region}}"
+                - name: ACCOUNT_ID
+                  value: "{{aws_account_id}}"
+                - name: OPS_REPORTS_BUCKET
+                  value: "{{ops_reports_bucket}}"
+                - name: OPS_REPORTS_BUCKET_REGION
+                  value: "{{ops_reports_bucket_region}}"
               resources:
                 requests:
                   cpu: 500m

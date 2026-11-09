@@ -42,6 +42,18 @@ Parameters:
     AllowedValues:
       - true
       - false
+  EnableSiteBucketReplication:
+    Type: String
+    Default: true
+    AllowedValues:
+      - true
+      - false
+  EnableBlobsBucketReplication:
+    Type: String
+    Default: true
+    AllowedValues:
+      - true
+      - false
   EnableS3OriginFailover:
     Type: String
     Default: false
@@ -145,31 +157,24 @@ Parameters:
   AuthAtEdgeLambdaArn:
     Type: String
     Default: ''
-  EnableWaf:
+  EnableSiteWaf:
     Type: String
+    Description: Creates a Web ACL for the site CloudFront.
     Default: false
     AllowedValues:
       - true
       - false
-  WebACLArn:
-    Type: String
-    Default: ''
-  WafRateLimit:
+  SiteWafRateLimitPerIp:
     Type: Number
+    Description: Requests per 5 minutes per IP before the rate limit rule counts a request.
     Default: 2000
     MinValue: 10
-  EnableWafBotControl:
+  EnableSiteWafBotControl:
     Type: String
     Default: false
     AllowedValues:
       - true
       - false
-  WafAllowedIpAddresses:
-    Type: CommaDelimitedList
-    Default: ''
-  WafBlockedIpAddresses:
-    Type: CommaDelimitedList
-    Default: ''
 
 Conditions:
   IsTestStack:
@@ -180,8 +185,12 @@ Conditions:
     !And [!Not [!Equals [!Ref S3BlobsBucketName, '']], !Equals [true, !Ref CreateBlobsBuckets], !Equals [false, !Ref TestStack]]
   ShouldCreateBackupBuckets:
     !And [!Not [!Equals [!Ref BackupRegion, '']], !Equals [true, !Ref CreateBackupBuckets], !Equals [false, !Ref TestStack]]
-  ShouldCreateBackupBlobsBuckets:
+  ShouldEnableSiteReplication:
+    !And [Condition: ShouldCreateSiteBucket, !Equals [true, !Ref EnableSiteBucketReplication], !Or [Condition: ShouldCreateBackupBuckets, !Not [!Equals [!Ref S3BackupSiteBucketName, '']]]]
+  ShouldCreateBackupBlobsBucket:
     !And [Condition: ShouldCreateBackupBuckets, Condition: ShouldCreateBlobsBuckets]
+  ShouldEnableBlobsReplication:
+    !And [Condition: ShouldCreateBlobsBuckets, !Equals [true, !Ref EnableBlobsBucketReplication], !Or [Condition: ShouldCreateBackupBlobsBucket, !Not [!Equals [!Ref S3BackupBlobsBucketName, '']]]]
   ShouldEnableS3OriginFailover:
     !And [!Not [!Equals [!Ref BackupRegion, '']], !Not [!Equals [!Ref S3BackupSiteBucketName, '']], !Equals [true, !Ref EnableS3OriginFailover]]    
   LBOriginCachePolicyIdSpecified:
@@ -202,16 +211,10 @@ Conditions:
     !And [!Equals [true, !Ref EnableCloudFrontLogging], !Not [!Equals [!Ref CloudFrontLoggingS3BucketName, '']]]
   AuthAtEdgeLambdaArnSpecified:
     !Not [!Equals [!Ref AuthAtEdgeLambdaArn, '']]
-  WebACLArnSpecified:
-    !Not [!Equals [!Ref WebACLArn, '']]
-  ShouldCreateSiteWebACL:
-    !And [!Equals [true, !Ref EnableWaf], !Not [Condition: WebACLArnSpecified]]
-  WafAllowedIpAddressesSpecified:
-    !Not [!Equals [!Join [',', !Ref WafAllowedIpAddresses], '']]
-  WafBlockedIpAddressesSpecified:
-    !Not [!Equals [!Join [',', !Ref WafBlockedIpAddresses], '']]
-  ShouldEnableWafBotControl:
-    !And [Condition: ShouldCreateSiteWebACL, !Equals [true, !Ref EnableWafBotControl]]
+  SiteWafEnabled:
+    !Equals [true, !Ref EnableSiteWaf]
+  ShouldEnableSiteWafBotControl:
+    !And [Condition: SiteWafEnabled, !Equals [true, !Ref EnableSiteWafBotControl]]
 
 Resources:
   S3BackupSiteBucket:
@@ -248,11 +251,12 @@ Resources:
         RestrictPublicBuckets: true
       ReplicationConfiguration:
           !If
-          - ShouldCreateBackupBuckets
-          - Role: !Ref S3ReplicationRoleArn
+          - ShouldEnableSiteReplication
+          - 
+            Role: !Ref S3ReplicationRoleArn
             Rules:
               - Destination:
-                  Bucket: !GetAtt [S3BackupSiteBucket, Arn]
+                  Bucket: !If [ShouldCreateBackupBuckets, !GetAtt [S3BackupSiteBucket, Arn], !Sub 'arn:aws:s3:::${S3BackupSiteBucketName}']
                   StorageClass: STANDARD
                 Id: Backup
                 Prefix: ''
@@ -284,7 +288,7 @@ Resources:
 
   S3BackupBlobsBucket:
     Type: Custom::LambdaTrigger
-    Condition: ShouldCreateBackupBlobsBuckets
+    Condition: ShouldCreateBackupBlobsBucket
     Properties:
       ServiceToken: !Ref S3BackupBucketLambdaArn
       BackupBucketName: !Ref S3BackupBlobsBucketName
@@ -316,12 +320,12 @@ Resources:
         RestrictPublicBuckets: true
       ReplicationConfiguration:
           !If
-          - ShouldCreateBackupBlobsBuckets
+          - ShouldEnableBlobsReplication
           - 
             Role: !Ref S3ReplicationRoleArn
             Rules:
               - Destination:
-                  Bucket: !GetAtt [S3BackupBlobsBucket, Arn]
+                  Bucket: !If [ShouldCreateBackupBlobsBucket, !GetAtt [S3BackupBlobsBucket, Arn], !Sub 'arn:aws:s3:::${S3BackupBlobsBucketName}']
                   StorageClass: STANDARD
                 Id: Backup
                 Prefix: ''
@@ -330,64 +334,22 @@ Resources:
       VersioningConfiguration:
         Status: Enabled
 
-  SiteWebACLAllowIpSet:
-    Type: AWS::WAFv2::IPSet
-    Condition: ShouldCreateSiteWebACL
-    Properties:
-      Name: !Sub '${SiteName}-allow-ip-set'
-      Description: !Sub 'Allowed IP addresses for site ${SiteName}'
-      Scope: CLOUDFRONT
-      IPAddressVersion: IPV4
-      Addresses: !If [WafAllowedIpAddressesSpecified, !Ref WafAllowedIpAddresses, []]
-
-  SiteWebACLBlockIpSet:
-    Type: AWS::WAFv2::IPSet
-    Condition: ShouldCreateSiteWebACL
-    Properties:
-      Name: !Sub '${SiteName}-block-ip-set'
-      Description: !Sub 'Blocked IP addresses for site ${SiteName}'
-      Scope: CLOUDFRONT
-      IPAddressVersion: IPV4
-      Addresses: !If [WafBlockedIpAddressesSpecified, !Ref WafBlockedIpAddresses, []]
-
   SiteWebACL:
     Type: AWS::WAFv2::WebACL
-    Condition: ShouldCreateSiteWebACL
+    Condition: SiteWafEnabled
     Properties:
-      Name: !Sub '${SiteName}-site-web-acl'
-      Description: !Sub 'Essential WAF rules for site ${SiteName}'
+      Name: !Sub '${AWS::StackName}-web-acl'
+      Description: !Sub 'WAF rules for the CloudFront of site ${SiteName}'
       Scope: CLOUDFRONT
       DefaultAction:
         Allow: {}
       VisibilityConfig:
         CloudWatchMetricsEnabled: true
-        MetricName: !Sub '${SiteName}-site-web-acl'
+        MetricName: !Sub '${AWS::StackName}-web-acl'
         SampledRequestsEnabled: true
       Rules:
-        - Name: ip-allowlist
-          Priority: 0
-          Action:
-            Allow: {}
-          Statement:
-            IPSetReferenceStatement:
-              Arn: !GetAtt SiteWebACLAllowIpSet.Arn
-          VisibilityConfig:
-            CloudWatchMetricsEnabled: true
-            MetricName: ip-allowlist
-            SampledRequestsEnabled: true
-        - Name: ip-blocklist
-          Priority: 1
-          Action:
-            Block: {}
-          Statement:
-            IPSetReferenceStatement:
-              Arn: !GetAtt SiteWebACLBlockIpSet.Arn
-          VisibilityConfig:
-            CloudWatchMetricsEnabled: true
-            MetricName: ip-blocklist
-            SampledRequestsEnabled: true
         - Name: layer-7-anti-ddos
-          Priority: 2
+          Priority: 10
           OverrideAction:
             None: {}
           Statement:
@@ -405,11 +367,11 @@ Resources:
             MetricName: layer-7-anti-ddos
             SampledRequestsEnabled: true
         - !If
-          - ShouldEnableWafBotControl
+          - ShouldEnableSiteWafBotControl
           - Name: bot-control-rules
             OverrideAction:
               None: {}
-            Priority: 3
+            Priority: 20
             Statement:
               ManagedRuleGroupStatement:
                 VendorName: AWS
@@ -434,19 +396,19 @@ Resources:
               SampledRequestsEnabled: true
           - !Ref AWS::NoValue
         - Name: global-rate-limit
-          Priority: 4
+          Priority: 30
           Action:
             Count: {}
           Statement:
             RateBasedStatement:
-              Limit: !Ref WafRateLimit
+              Limit: !Ref SiteWafRateLimitPerIp
               AggregateKeyType: IP
           VisibilityConfig:
             CloudWatchMetricsEnabled: true
             MetricName: global-rate-limit
             SampledRequestsEnabled: true
         - Name: aws-core-rule-set
-          Priority: 5
+          Priority: 40
           OverrideAction:
             None: {}
           Statement:
@@ -461,17 +423,17 @@ Resources:
             CloudWatchMetricsEnabled: true
             MetricName: aws-core-rule-set
             SampledRequestsEnabled: true
-        - Name: sql-injection-protection
-          Priority: 6
+        - Name: known-bad-inputs
+          Priority: 50
           OverrideAction:
             None: {}
           Statement:
             ManagedRuleGroupStatement:
               VendorName: AWS
-              Name: AWSManagedRulesSQLiRuleSet
+              Name: AWSManagedRulesKnownBadInputsRuleSet
           VisibilityConfig:
             CloudWatchMetricsEnabled: true
-            MetricName: sql-injection-protection
+            MetricName: known-bad-inputs
             SampledRequestsEnabled: true
       Tags:
         - Key: craftercms:environment
@@ -480,16 +442,16 @@ Resources:
           Value: {{prod_env}}
         - Key: craftercms:site
           Value: !Ref SiteName
-  
+
   CloudFrontDistribution:
     Type: 'AWS::CloudFront::Distribution'
     Properties:
       DistributionConfig:
-        Comment: !If [IsTestStack, !Sub 'Test CloudFront Distribution for site ${SiteName}', !Sub 'CloudFront Distribution for site ${SiteName}']
+        Comment: !If [IsTestStack, !Sub 'Test CloudFront for site ${SiteName}', !Sub 'CloudFront for site ${SiteName}']
         WebACLId: !If
-          - ShouldCreateSiteWebACL
+          - SiteWafEnabled
           - !GetAtt SiteWebACL.Arn
-          - !If [WebACLArnSpecified, !Ref WebACLArn, !Ref 'AWS::NoValue']
+          - !Ref 'AWS::NoValue'
         Enabled: true
         PriceClass: !Ref CloudFrontPriceClass
         Aliases: !If [AlternateCloudFrontDomainNamesSpecified, !Ref AlternateCloudFrontDomainNames, !Ref 'AWS::NoValue']
@@ -593,5 +555,5 @@ Outputs:
   CloudFrontDistributionDomainName:
     Value: !GetAtt CloudFrontDistribution.DomainName
   SiteWebACLArn:
-    Condition: ShouldCreateSiteWebACL
+    Condition: SiteWafEnabled
     Value: !GetAtt SiteWebACL.Arn

@@ -16,6 +16,7 @@ Resources:
     Properties:
       TopicName: "{{cluster_name}}-notifications"
       DisplayName: "{{cluster_name}} notifications"
+      KmsMasterKeyId: alias/aws/sns
 
   NotificationsEmailSubscription:
     Type: AWS::SNS::Subscription

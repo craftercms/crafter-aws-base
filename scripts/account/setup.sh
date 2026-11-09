@@ -24,6 +24,12 @@ fi
 
 RESOURCES_STACK_NAME="crafter-account-resources"
 RESOURCES_STACK_CONFIG_FILE="$TEMPLATES_HOME/aws-infra/resources.yaml"
+
+if [ -z "$CLIENT_ID" ]; then
+    echo "CLIENT_ID is required in the account config (used for {CLIENT_ID}-crafter-opensearch-manual-snapshots)."
+    exit 1
+fi
+
 resources_stack=$(aws cloudformation describe-stacks --stack-name $RESOURCES_STACK_NAME | jq '.Stacks[0]')
 if [ -z "$resources_stack" ] || [ "$resources_stack" == "null" ]; then
     aws cloudformation create-stack --stack-name $RESOURCES_STACK_NAME \
@@ -31,11 +37,13 @@ if [ -z "$resources_stack" ] || [ "$resources_stack" == "null" ]; then
         --template-body file://$RESOURCES_STACK_CONFIG_FILE --parameters \
         ParameterKey=CloudFrontNotificationsEmailAddress,ParameterValue="$CLOUDFRONT_NOTIFICATIONS_EMAIL_ADDRESS" \
         ParameterKey=EksAdminTrustedPrincipals,ParameterValue="arn:aws:iam::$AWS_ACCOUNT_ID:root" \
-        ParameterKey=EksCrafterCMSSupportTrustedPrincipals,ParameterValue="arn:aws:iam::$AWS_ACCOUNT_ID:root"
+        ParameterKey=EksCrafterCMSSupportTrustedPrincipals,ParameterValue="arn:aws:iam::$AWS_ACCOUNT_ID:root" \
+        ParameterKey=ClientId,ParameterValue="$CLIENT_ID"
 
     echo "Waiting for account resources stack to be created..."
 
     aws cloudformation wait stack-create-complete --stack-name $RESOURCES_STACK_NAME
 else
     echo "Account resources stack already exists."
+    echo "To add the OpenSearch snapshot bucket and role, update the stack with ClientId via a change-set. Do not run a blind update-stack."
 fi

@@ -203,3 +203,14 @@ in order to allow HTTPS access.
 1. Navigate to studio
 2. Create a new empty site
 3. Publish the home page
+
+## OpenSearch backup and restore
+
+Manual S3 snapshots before an OpenSearch upgrade. Copy
+`scripts/clusters/opensearch-backup-restore.sh` to
+`/opt/crafter/scripts/opensearch-backup-restore.sh` on the cluster bastion
+and run `backup` / `restore` there with `curl`. CloudFormation does not
+install that file. Do not run those commands from a laptop.
+The snapshot bucket and IAM role live in the account stack `crafter-account-resources`
+(`{CLIENT_ID}-crafter-opensearch-manual-snapshots`). See [docs/opensearch-backup-restore.md](docs/opensearch-backup-restore.md)
+and `scripts/clusters/opensearch-backup-restore.sh`.

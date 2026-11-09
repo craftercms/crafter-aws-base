@@ -15,9 +15,12 @@ Parameters:
     Type: String
     NoEcho: true
     Default: ''
+  # Sunday 9-11 pm ET maintenance window. Metric math DAY/HOUR are UTC, so the window
+  # falls on Monday: 01:00-03:59 UTC under EDT, 02:00-04:59 UTC under EST. Hours 1-4
+  # cover both, at the cost of one extra hour on the edge outside the current DST offset.
   BlackoutWindowDay:
     Type: String
-    Default: 7
+    Default: 1
     AllowedValues:
       - 1
       - 2
@@ -28,10 +31,10 @@ Parameters:
       - 7
   BlackoutWindowStartHour:
     Type: String
-    Default: 16
+    Default: 1
   BlackoutWindowEndHour:
     Type: String
-    Default: 17
+    Default: 4
   LoadBalancerAlarmsEnabled:
     Type: String
     Default: false
@@ -330,7 +333,8 @@ Resources:
       AlarmName: {{client_id}}/{{cluster_name}}/authoring-pods-down
       AlarmDescription: Authoring in {{client_id}}/{{cluster_name}} pod count < 1
       Metrics:
-        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 1, m1)"
+        # FILL on DAY/HOUR for blackout math; FILL else-branch avoids ContainerInsights gap false flaps; notBreaching on missing (real pod=0 still alarms).
+        - Expression: !Sub "IF((DAY(FILL(m1,1)) == ${BlackoutWindowDay} AND (HOUR(FILL(m1,1)) >= ${BlackoutWindowStartHour} AND HOUR(FILL(m1,1)) <= ${BlackoutWindowEndHour})), 1, FILL(m1,1))"
           Id: service_number_of_running_pods
           Period: '60'
           ReturnData: True
@@ -353,11 +357,19 @@ Resources:
       DatapointsToAlarm: '2'
       ComparisonOperator: LessThanThreshold
       Threshold: '1'
-      TreatMissingData: "missing"
+      TreatMissingData: "notBreaching"
       AlarmActions:
-        - !Ref AlarmsNotificationSNSTopic
-      OKActions: 
-        - !Ref AlarmsNotificationSNSTopic
+        !If
+          - PagerDutyIntegrationUrlSpecified
+          - - !Ref AlarmsPagerDutySNSTopic
+            - !Ref AlarmsNotificationSNSTopic
+          - - !Ref AlarmsNotificationSNSTopic
+      OKActions:
+        !If
+          - PagerDutyIntegrationUrlSpecified
+          - - !Ref AlarmsPagerDutySNSTopic
+            - !Ref AlarmsNotificationSNSTopic
+          - - !Ref AlarmsNotificationSNSTopic
 
   AuthoringTomcatHighMemoryAlarm:
     Type: AWS::CloudWatch::Alarm
@@ -366,7 +378,8 @@ Resources:
       AlarmName: {{client_id}}/{{cluster_name}}/authoring-tomcat-high-memory
       AlarmDescription: Authoring tomcat in {{client_id}}/{{cluster_name}} memory usage is > 95%
       Metrics:
-        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 1, m1)"
+        # FILL so sparse/missing samples become OK and fire OKActions (PD auto-resolve).
+        - Expression: !Sub "IF((DAY(FILL(m1,1)) == ${BlackoutWindowDay} AND (HOUR(FILL(m1,1)) >= ${BlackoutWindowStartHour} AND HOUR(FILL(m1,1)) <= ${BlackoutWindowEndHour})), 1, FILL(m1,1))"
           Id: container_memory_utilization_over_container_limit
           Period: '300'
           ReturnData: True
@@ -390,7 +403,7 @@ Resources:
       EvaluationPeriods: '1'
       ComparisonOperator: GreaterThanThreshold
       Threshold: '95'
-      TreatMissingData: "missing"
+      TreatMissingData: "notBreaching"
       AlarmActions:
         - !Ref AlarmsNotificationSNSTopic
       OKActions:
@@ -403,7 +416,8 @@ Resources:
       AlarmName: {{client_id}}/{{cluster_name}}/authoring-deployer-high-memory
       AlarmDescription: Authoring deployer in {{client_id}}/{{cluster_name}} memory usage is > 95%
       Metrics:
-        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 1, m1)"
+        # FILL so sparse/missing samples become OK and fire OKActions (PD auto-resolve).
+        - Expression: !Sub "IF((DAY(FILL(m1,1)) == ${BlackoutWindowDay} AND (HOUR(FILL(m1,1)) >= ${BlackoutWindowStartHour} AND HOUR(FILL(m1,1)) <= ${BlackoutWindowEndHour})), 1, FILL(m1,1))"
           Id: container_memory_utilization_over_container_limit
           Period: '300'
           ReturnData: True
@@ -427,7 +441,7 @@ Resources:
       EvaluationPeriods: '1'
       ComparisonOperator: GreaterThanThreshold
       Threshold: '95'
-      TreatMissingData: "missing"
+      TreatMissingData: "notBreaching"
       AlarmActions:
         - !Ref AlarmsNotificationSNSTopic
       OKActions:
@@ -440,7 +454,8 @@ Resources:
       AlarmName: {{client_id}}/{{cluster_name}}/authoring-tomcat-high-cpu
       AlarmDescription: Authoring tomcat in {{client_id}}/{{cluster_name}} CPU usage is > 90%
       Metrics:
-        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 1, m1)"
+        # FILL so sparse/missing samples become OK and fire OKActions (PD auto-resolve).
+        - Expression: !Sub "IF((DAY(FILL(m1,1)) == ${BlackoutWindowDay} AND (HOUR(FILL(m1,1)) >= ${BlackoutWindowStartHour} AND HOUR(FILL(m1,1)) <= ${BlackoutWindowEndHour})), 1, FILL(m1,1))"
           Id: container_cpu_utilization_over_container_limit
           Period: '300'
           ReturnData: True
@@ -464,7 +479,7 @@ Resources:
       EvaluationPeriods: '1'
       ComparisonOperator: GreaterThanThreshold
       Threshold: '90'
-      TreatMissingData: "missing"
+      TreatMissingData: "notBreaching"
       AlarmActions:
         - !Ref AlarmsNotificationSNSTopic
       OKActions:
@@ -477,7 +492,8 @@ Resources:
       AlarmName: {{client_id}}/{{cluster_name}}/authoring-deployer-high-cpu
       AlarmDescription: Authoring deployer in {{client_id}}/{{cluster_name}} CPU usage is > 90%
       Metrics:
-        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 1, m1)"
+        # FILL so sparse/missing samples become OK and fire OKActions (PD auto-resolve).
+        - Expression: !Sub "IF((DAY(FILL(m1,1)) == ${BlackoutWindowDay} AND (HOUR(FILL(m1,1)) >= ${BlackoutWindowStartHour} AND HOUR(FILL(m1,1)) <= ${BlackoutWindowEndHour})), 1, FILL(m1,1))"
           Id: container_cpu_utilization_over_container_limit
           Period: '300'
           ReturnData: True
@@ -501,7 +517,7 @@ Resources:
       EvaluationPeriods: '1'
       ComparisonOperator: GreaterThanThreshold
       Threshold: '90'
-      TreatMissingData: "missing"
+      TreatMissingData: "notBreaching"
       AlarmActions:
         - !Ref AlarmsNotificationSNSTopic
       OKActions:
@@ -514,7 +530,8 @@ Resources:
       AlarmName: {{client_id}}/{{cluster_name}}/authoring-data-volume-capacity
       AlarmDescription: Data Volume capacity in Authoring {{client_id}}/{{cluster_name}} pod is less than 20 GB
       Metrics:
-        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 200000000000, m1)"
+        # FILL so sparse/missing samples become OK and fire OKActions (PD auto-resolve).
+        - Expression: !Sub "IF((DAY(FILL(m1,200000000000)) == ${BlackoutWindowDay} AND (HOUR(FILL(m1,200000000000)) >= ${BlackoutWindowStartHour} AND HOUR(FILL(m1,200000000000)) <= ${BlackoutWindowEndHour})), 200000000000, FILL(m1,200000000000))"
           Id: kubelet_volume_stats_available_bytes
           Period: '300'
           ReturnData: True
@@ -536,7 +553,7 @@ Resources:
       EvaluationPeriods: '1'
       ComparisonOperator: LessThanThreshold
       Threshold: '20000000000'
-      TreatMissingData: "missing"
+      TreatMissingData: "notBreaching"
       AlarmActions:
         !If
           - PagerDutyIntegrationUrlSpecified
@@ -557,7 +574,8 @@ Resources:
       AlarmName: {{client_id}}/{{cluster_name}}/authoring-logs-volume-usage
       AlarmDescription: Logs volume usage in Authoring {{client_id}}/{{cluster_name}} pod is more than 16 GB
       Metrics:
-        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 500000000, m1)"
+        # FILL so sparse/missing samples become OK and fire OKActions (PD auto-resolve).
+        - Expression: !Sub "IF((DAY(FILL(m1,500000000)) == ${BlackoutWindowDay} AND (HOUR(FILL(m1,500000000)) >= ${BlackoutWindowStartHour} AND HOUR(FILL(m1,500000000)) <= ${BlackoutWindowEndHour})), 500000000, FILL(m1,500000000))"
           Id: kubelet_volume_stats_used_bytes
           Period: '300'
           ReturnData: True
@@ -579,7 +597,7 @@ Resources:
       EvaluationPeriods: '1'
       ComparisonOperator: GreaterThanThreshold
       Threshold: '16000000000'
-      TreatMissingData: "missing"
+      TreatMissingData: "notBreaching"
       AlarmActions:
         !If
           - PagerDutyIntegrationUrlSpecified
@@ -600,7 +618,8 @@ Resources:
       AlarmName: {{client_id}}/{{cluster_name}}/authoring-data-volume-free-inodes
       AlarmDescription: Free inodes in Authoring {{client_id}}/{{cluster_name}} pod are < 100000
       Metrics:
-        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 1000000, m1)"
+        # FILL so sparse/missing samples become OK and fire OKActions (PD auto-resolve).
+        - Expression: !Sub "IF((DAY(FILL(m1,1000000)) == ${BlackoutWindowDay} AND (HOUR(FILL(m1,1000000)) >= ${BlackoutWindowStartHour} AND HOUR(FILL(m1,1000000)) <= ${BlackoutWindowEndHour})), 1000000, FILL(m1,1000000))"
           Id: kubelet_volume_stats_available_bytes
           Period: '300'
           ReturnData: True
@@ -622,7 +641,7 @@ Resources:
       EvaluationPeriods: '1'
       ComparisonOperator: LessThanThreshold
       Threshold: '100000'
-      TreatMissingData: "missing"
+      TreatMissingData: "notBreaching"
       AlarmActions:
         !If
           - PagerDutyIntegrationUrlSpecified
@@ -643,7 +662,8 @@ Resources:
       AlarmName: {{client_id}}/{{cluster_name}}/delivery-pods-down
       AlarmDescription: !Sub "Delivery in {{client_id}}/{{cluster_name}} pod count < ${DeliveryInstanceCount}"
       Metrics:
-        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), ${DeliveryInstanceCount}, m1)"
+        # FILL on DAY/HOUR for blackout math; FILL else-branch avoids ContainerInsights gap false flaps; notBreaching on missing (real pod=0 still alarms).
+        - Expression: !Sub "IF((DAY(FILL(m1,${DeliveryInstanceCount})) == ${BlackoutWindowDay} AND (HOUR(FILL(m1,${DeliveryInstanceCount})) >= ${BlackoutWindowStartHour} AND HOUR(FILL(m1,${DeliveryInstanceCount})) <= ${BlackoutWindowEndHour})), ${DeliveryInstanceCount}, FILL(m1,${DeliveryInstanceCount}))"
           Id: service_number_of_running_pods
           Period: '60'
           ReturnData: True
@@ -666,20 +686,29 @@ Resources:
       DatapointsToAlarm: '2'
       ComparisonOperator: LessThanThreshold
       Threshold: !Ref DeliveryInstanceCount
-      TreatMissingData: "missing"
+      TreatMissingData: "notBreaching"
       AlarmActions:
-        - !Ref AlarmsNotificationSNSTopic
+        !If
+          - PagerDutyIntegrationUrlSpecified
+          - - !Ref AlarmsPagerDutySNSTopic
+            - !Ref AlarmsNotificationSNSTopic
+          - - !Ref AlarmsNotificationSNSTopic
       OKActions:
-        - !Ref AlarmsNotificationSNSTopic
+        !If
+          - PagerDutyIntegrationUrlSpecified
+          - - !Ref AlarmsPagerDutySNSTopic
+            - !Ref AlarmsNotificationSNSTopic
+          - - !Ref AlarmsNotificationSNSTopic
 
   DeliveryTomcatHighCPUAlarm:
     Type: AWS::CloudWatch::Alarm
     Condition: CloudWatchAlarmsEnabled
     Properties:
-      AlarmName: {{client_id}}/{{cluster_name}}/delivery-tomcat-high-cpu-usage
+      AlarmName: {{client_id}}/{{cluster_name}}/delivery-tomcat-high-cpu
       AlarmDescription: Delivery tomcat in {{client_id}}/{{cluster_name}} container CPU usage is > 90%
       Metrics:
-        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 1, m1)"
+        # FILL so sparse/missing samples become OK and fire OKActions (PD auto-resolve).
+        - Expression: !Sub "IF((DAY(FILL(m1,1)) == ${BlackoutWindowDay} AND (HOUR(FILL(m1,1)) >= ${BlackoutWindowStartHour} AND HOUR(FILL(m1,1)) <= ${BlackoutWindowEndHour})), 1, FILL(m1,1))"
           Id: container_cpu_utilization_over_container_limit
           Period: '300'
           ReturnData: True
@@ -703,7 +732,7 @@ Resources:
       EvaluationPeriods: '1'
       ComparisonOperator: GreaterThanThreshold
       Threshold: '90'
-      TreatMissingData: "missing"
+      TreatMissingData: "notBreaching"
       AlarmActions:
         - !Ref AlarmsNotificationSNSTopic
       OKActions:
@@ -713,10 +742,11 @@ Resources:
     Type: AWS::CloudWatch::Alarm
     Condition: CloudWatchAlarmsEnabled
     Properties:
-      AlarmName: {{client_id}}/{{cluster_name}}/delivery-tomcat-high-memory-usage
+      AlarmName: {{client_id}}/{{cluster_name}}/delivery-tomcat-high-memory
       AlarmDescription: Delivery tomcat in {{client_id}}/{{cluster_name}} memory usage is > 95%
       Metrics:
-        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 1, m1)"
+        # FILL so sparse/missing samples become OK and fire OKActions (PD auto-resolve).
+        - Expression: !Sub "IF((DAY(FILL(m1,1)) == ${BlackoutWindowDay} AND (HOUR(FILL(m1,1)) >= ${BlackoutWindowStartHour} AND HOUR(FILL(m1,1)) <= ${BlackoutWindowEndHour})), 1, FILL(m1,1))"
           Id: container_memory_utilization_over_container_limit
           Period: '300'
           ReturnData: True
@@ -740,12 +770,13 @@ Resources:
       EvaluationPeriods: '1'
       ComparisonOperator: GreaterThanThreshold
       Threshold: '95'
-      TreatMissingData: "missing"
+      TreatMissingData: "notBreaching"
       AlarmActions:
         - !Ref AlarmsNotificationSNSTopic
       OKActions:
         - !Ref AlarmsNotificationSNSTopic
 
+  # OS latency: FILL on DAY/HOUR; 3/2 eval so single-minute spikes/gaps do not page.
   OSIndexingLatencyAlarm:
     Type: AWS::CloudWatch::Alarm
     Condition: CloudWatchAlarmsEnabled
@@ -753,7 +784,7 @@ Resources:
       AlarmName: {{client_id}}/{{cluster_name}}/os-indexing-latency-alarm
       AlarmDescription: OS cluster indexing latency in {{client_id}}/{{cluster_name}}  > 80 millisec
       Metrics:
-        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 1, m1)"
+        - Expression: !Sub "IF((DAY(FILL(m1,0)) == ${BlackoutWindowDay} AND (HOUR(FILL(m1,0)) >= ${BlackoutWindowStartHour} AND HOUR(FILL(m1,0)) <= ${BlackoutWindowEndHour})), 1, FILL(m1,0))"
           Id: indexing_latency
           Period: '60'
           ReturnData: True
@@ -770,10 +801,11 @@ Resources:
               Namespace: AWS/ES
             Period: '60'
             Stat: Average
-      EvaluationPeriods: '1'
+      EvaluationPeriods: '3'
+      DatapointsToAlarm: '2'
       ComparisonOperator: GreaterThanThreshold
       Threshold: '80'
-      TreatMissingData: "breaching"
+      TreatMissingData: "notBreaching"
       AlarmActions:
         - !Ref AlarmsNotificationSNSTopic
       OKActions: 
@@ -786,7 +818,7 @@ Resources:
       AlarmName: {{client_id}}/{{cluster_name}}/os-search-latency-alarm
       AlarmDescription: OS cluster search latency in {{client_id}}/{{cluster_name}}  > 50 millisec
       Metrics:
-        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 1, m1)"
+        - Expression: !Sub "IF((DAY(FILL(m1,0)) == ${BlackoutWindowDay} AND (HOUR(FILL(m1,0)) >= ${BlackoutWindowStartHour} AND HOUR(FILL(m1,0)) <= ${BlackoutWindowEndHour})), 1, FILL(m1,0))"
           Id: search_latency
           Period: '60'
           ReturnData: True
@@ -803,15 +835,17 @@ Resources:
               Namespace: AWS/ES
             Period: '60'
             Stat: Average
-      EvaluationPeriods: '1'
+      EvaluationPeriods: '3'
+      DatapointsToAlarm: '2'
       ComparisonOperator: GreaterThanThreshold
       Threshold: '50'
-      TreatMissingData: "breaching"
+      TreatMissingData: "notBreaching"
       AlarmActions:
         - !Ref AlarmsNotificationSNSTopic
       OKActions: 
         - !Ref AlarmsNotificationSNSTopic
 
+  # OS free storage (PD): FILL gaps to 5000 (safe / non-breaching under threshold); 3/2 eval; TreatMissingData notBreaching (FILL already fills gaps).
   OSFreeStorageSpaceAlarm:
     Type: AWS::CloudWatch::Alarm
     Condition: CloudWatchAlarmsEnabled
@@ -819,7 +853,7 @@ Resources:
       AlarmName: {{client_id}}/{{cluster_name}}/os-free-storage-space-alarm
       AlarmDescription: free storage space in {{client_id}}/{{cluster_name}}  < 5000
       Metrics:
-        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 5000, m1)"
+        - Expression: !Sub "IF((DAY(FILL(m1,5000)) == ${BlackoutWindowDay} AND (HOUR(FILL(m1,5000)) >= ${BlackoutWindowStartHour} AND HOUR(FILL(m1,5000)) <= ${BlackoutWindowEndHour})), 5000, FILL(m1,5000))"
           Id: os_free_storage_space_alarm
           Period: '60'
           ReturnData: True
@@ -836,10 +870,11 @@ Resources:
               Namespace: AWS/ES
             Period: '60'
             Stat: Minimum
-      EvaluationPeriods: '1'
+      EvaluationPeriods: '3'
+      DatapointsToAlarm: '2'
       ComparisonOperator: LessThanThreshold
       Threshold: '5000'
-      TreatMissingData: "breaching"
+      TreatMissingData: "notBreaching"
       AlarmActions:
         !If
           - PagerDutyIntegrationUrlSpecified
@@ -860,7 +895,7 @@ Resources:
       AlarmName: {{client_id}}/{{cluster_name}}/os-cpu-utilization-alarm
       AlarmDescription: os cpu utilization in {{client_id}}/{{cluster_name}}  > 70
       Metrics:
-        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 1, m1)"
+        - Expression: !Sub "IF((DAY(FILL(m1,0)) == ${BlackoutWindowDay} AND (HOUR(FILL(m1,0)) >= ${BlackoutWindowStartHour} AND HOUR(FILL(m1,0)) <= ${BlackoutWindowEndHour})), 1, FILL(m1,0))"
           Id: os_cpu_utilization_alarm
           Period: '60'
           ReturnData: True
@@ -877,31 +912,29 @@ Resources:
               Namespace: AWS/ES
             Period: '60'
             Stat: Maximum
-      EvaluationPeriods: '1'
+      EvaluationPeriods: '3'
+      DatapointsToAlarm: '2'
       ComparisonOperator: GreaterThanThreshold
       Threshold: '70'
-      TreatMissingData: "breaching"
+      TreatMissingData: "notBreaching"
       AlarmActions:
         - !Ref AlarmsNotificationSNSTopic
       OKActions: 
         - !Ref AlarmsNotificationSNSTopic
 
+  # OS HTTP errors: 5xx only (3xx/4xx are redirects/client noise). FILL + 3/2 eval.
   OSHttpErrorsAlarm:
     Type: AWS::CloudWatch::Alarm
     Condition: CloudWatchAlarmsEnabled
     Properties:
       AlarmName: {{client_id}}/{{cluster_name}}/os-http-errors-alarm
-      AlarmDescription: OS cluster http errors in {{client_id}}/{{cluster_name}}  > 1000
+      AlarmDescription: OS cluster 5xx http errors in {{client_id}}/{{cluster_name}}  > 1000
       Metrics:
-        - Expression: !Sub "IF((DAY(xx4) == ${BlackoutWindowDay} AND (HOUR(xx4) >= ${BlackoutWindowStartHour} AND HOUR(xx4) <= ${BlackoutWindowEndHour})), 100, m1)"
+        - Expression: !Sub "IF((DAY(FILL(m1,0)) == ${BlackoutWindowDay} AND (HOUR(FILL(m1,0)) >= ${BlackoutWindowStartHour} AND HOUR(FILL(m1,0)) <= ${BlackoutWindowEndHour})), 0, FILL(m1,0))"
           Id: os_http_errors
           Period: '300'
           ReturnData: True
-        - Expression: SUM([xx3, xx4, xx5])
-          Id: m1
-          Period: '300'
-          ReturnData: False
-        - Id: xx5
+        - Id: m1
           ReturnData: False
           MetricStat:
             Metric:
@@ -914,36 +947,11 @@ Resources:
               Namespace: AWS/ES
             Period: '300'
             Stat: Sum
-        - Id: xx3
-          ReturnData: False
-          MetricStat:
-            Metric:
-              Dimensions:
-                - Name: DomainName
-                  Value: {{cluster_name}}-opensearch
-                - Name: ClientId
-                  Value: !Sub '${AWS::AccountId}'
-              MetricName: 3xx
-              Namespace: AWS/ES
-            Period: '300'
-            Stat: Sum
-        - Id: xx4
-          ReturnData: False
-          MetricStat:
-            Metric:
-              Dimensions:
-                - Name: DomainName
-                  Value: {{cluster_name}}-opensearch
-                - Name: ClientId
-                  Value: !Sub '${AWS::AccountId}'
-              MetricName: 4xx
-              Namespace: AWS/ES
-            Period: '300'
-            Stat: Sum
-      EvaluationPeriods: '1'
+      EvaluationPeriods: '3'
+      DatapointsToAlarm: '2'
       ComparisonOperator: GreaterThanThreshold
       Threshold: '1000'
-      TreatMissingData: "breaching"
+      TreatMissingData: "notBreaching"
       AlarmActions:
         - !Ref AlarmsNotificationSNSTopic
       OKActions: 
@@ -956,7 +964,7 @@ Resources:
       AlarmName: {{client_id}}/{{cluster_name}}/os-jvm-memory-pressure-alarm
       AlarmDescription: os jvm memory pressure in {{client_id}}/{{cluster_name}} > 95
       Metrics:
-        - Expression: !Sub "IF((DAY(m1) == ${BlackoutWindowDay} AND (HOUR(m1) >= ${BlackoutWindowStartHour} AND HOUR(m1) <= ${BlackoutWindowEndHour})), 1, m1)"
+        - Expression: !Sub "IF((DAY(FILL(m1,0)) == ${BlackoutWindowDay} AND (HOUR(FILL(m1,0)) >= ${BlackoutWindowStartHour} AND HOUR(FILL(m1,0)) <= ${BlackoutWindowEndHour})), 1, FILL(m1,0))"
           Id: os_jvm_memory_pressure_alarm
           Period: '60'
           ReturnData: True
@@ -973,11 +981,62 @@ Resources:
               Namespace: AWS/ES
             Period: '60'
             Stat: Maximum
-      EvaluationPeriods: '1'
+      EvaluationPeriods: '3'
+      DatapointsToAlarm: '2'
       ComparisonOperator: GreaterThanThreshold
       Threshold: '95'
-      TreatMissingData: "breaching"
+      TreatMissingData: "notBreaching"
       AlarmActions:
         - !Ref AlarmsNotificationSNSTopic
       OKActions: 
         - !Ref AlarmsNotificationSNSTopic
+
+  # OOM log metric → PD. FILL(m1,0) + notBreaching so quiet periods stay OK and OKActions resolve PD.
+  OOMMetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Condition: CloudWatchAlarmsEnabled
+    Properties:
+      ApplyOnTransformedLogs: false
+      FilterName: {{cluster_name}}-OOMMetricFilter
+      FilterPattern: "OutOfMemoryError"
+      LogGroupName: "/aws/containerinsights/{{cluster_name}}/application"
+      MetricTransformations:
+        - MetricValue: "1"
+          MetricNamespace: "OOMCount"
+          MetricName: "{{cluster_name}}-OOM-Count"
+
+  OOMMetricFilterAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CloudWatchAlarmsEnabled
+    Properties:
+      AlarmName: {{client_id}}/{{cluster_name}}/oom-metric-filter-count
+      AlarmDescription: OOM messages in application logs for {{client_id}}/{{cluster_name}} env are > 0
+      Metrics:
+        - Expression: !Sub "IF((DAY(FILL(m1,0)) == ${BlackoutWindowDay} AND (HOUR(FILL(m1,0)) >= ${BlackoutWindowStartHour} AND HOUR(FILL(m1,0)) <= ${BlackoutWindowEndHour})), 0, FILL(m1,0))"
+          Id: oom_metric_filter_count
+          Period: '120'
+          ReturnData: True
+        - Id: m1
+          ReturnData: False
+          MetricStat:
+            Metric:
+              MetricName: {{cluster_name}}-OOM-Count
+              Namespace: OOMCount
+            Period: '120'
+            Stat: Sum
+      EvaluationPeriods: '1'
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: '0'
+      TreatMissingData: "notBreaching"
+      AlarmActions:
+        !If
+          - PagerDutyIntegrationUrlSpecified
+          - - !Ref AlarmsPagerDutySNSTopic
+            - !Ref AlarmsNotificationSNSTopic
+          - - !Ref AlarmsNotificationSNSTopic
+      OKActions:
+        !If
+          - PagerDutyIntegrationUrlSpecified
+          - - !Ref AlarmsPagerDutySNSTopic
+            - !Ref AlarmsNotificationSNSTopic
+          - - !Ref AlarmsNotificationSNSTopic

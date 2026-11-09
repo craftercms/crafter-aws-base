@@ -22,6 +22,12 @@ metadata:
       {"type":"forward","forwardConfig":{"targetGroups":[{"serviceName":"delivery-service","servicePort":"8080"}]}}
     alb.ingress.kubernetes.io/actions.block-request: >
       {"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"403","messageBody":"403 External access to endpoint not allowed"}}
+    alb.ingress.kubernetes.io/actions.block-xml-request: >
+      {"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"415","messageBody":"Unsupported Media Type"}}
+    # Applies to any request method: no endpoint below accepts XML, and the ALB cannot inspect bodies.
+    # The *xml* pattern also covers the application/*+xml types that select an XML message converter.
+    alb.ingress.kubernetes.io/conditions.block-xml-request: >
+      [{"field":"http-header","httpHeaderConfig":{"httpHeaderName":"Content-Type","values":["*xml*"]}}]
     alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS13-1-2-Res-2021-06
     alb.ingress.kubernetes.io/tags: craftercms:environment={{environment}},craftercms:prod={{prod_env}}
     alb.ingress.kubernetes.io/security-groups: "{{delivery_frontend_sg}},{{delivery_backend_sg}}"
@@ -82,6 +88,34 @@ spec:
             backend: 
               service: 
                 name: block-request
+                port:
+                  name: use-annotation
+          - path: /api/1/site/search/search*
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: block-xml-request
+                port:
+                  name: use-annotation
+          - path: /api/1/site/elasticsearch/search*
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: block-xml-request
+                port:
+                  name: use-annotation
+          - path: /api/1/site/graphql*
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: block-xml-request
+                port:
+                  name: use-annotation
+          - path: /api/1/profile/set*
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: block-xml-request
                 port:
                   name: use-annotation
           - path: /*

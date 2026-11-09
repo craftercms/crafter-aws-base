@@ -85,3 +85,19 @@ function switch_cluster_context() {
         fi
     fi  
 }
+
+# Convert a comma-separated string to a YAML/JSON flow list: ["a","b",...]
+function create_csv_list() {
+    local csv="$1"
+    local IFS=','
+    local -a strarr
+    local i csv_list
+    read -ra strarr <<< "$csv"
+    for i in "${!strarr[@]}"; do
+        # Trim leading/trailing whitespace from each CIDR entry
+        strarr[$i]="${strarr[$i]#"${strarr[$i]%%[![:space:]]*}"}"
+        strarr[$i]="${strarr[$i]%"${strarr[$i]##*[![:space:]]}"}"
+    done
+    printf -v csv_list '"%s",' "${strarr[@]}"
+    printf '%s\n' "[${csv_list%,}]"
+}
