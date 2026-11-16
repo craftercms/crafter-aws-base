@@ -53,6 +53,9 @@ Parameters:
 Conditions:
   AuthoringHealthcheckHostnameSpecified:
     !Not [!Equals [!Ref AuthoringHealthcheckHostname, '']]
+  # Empty when DELIVERY_LB_SCHEME is internal. Route 53 checkers cannot reach a private ALB.
+  DeliveryHealthcheckHostnameSpecified:
+    !Not [!Equals [!Ref DeliveryHealthcheckHostname, '']]
   PagerDutyIntegrationUrlSpecified:
     !Not [!Equals [!Ref PagerDutyIntegrationUrl, '']]
   AlarmsSlackChannelHookUrlSpecified:
@@ -78,6 +81,7 @@ Resources:
 
   DeliveryHealthCheck: 
     Type: 'AWS::Route53::HealthCheck'
+    Condition: DeliveryHealthcheckHostnameSpecified
     Properties: 
       HealthCheckConfig: 
         Port: 443
@@ -132,6 +136,7 @@ Resources:
 
   DeliveryHealthcheckAlarm:
     Type: AWS::CloudWatch::Alarm
+    Condition: DeliveryHealthcheckHostnameSpecified
     Properties:
       AlarmName: {{client_id}}/{{cluster_name}}/{{aws_region}}/delivery-healthcheck
       AlarmDescription: Delivery in {{client_id}}/{{cluster_name}}/{{aws_region}} is unhealthy

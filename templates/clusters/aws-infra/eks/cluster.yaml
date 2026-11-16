@@ -312,14 +312,19 @@ managedNodeGroups:
 
 addons:
 - name: aws-guardduty-agent
+  version: v1.17.3-eksbuild.2
   configurationValues: "{\"resources\":{\"limits\":{\"cpu\":\"300m\",\"memory\":\"512Mi\"},\"requests\":{\"cpu\":\"200m\",\"memory\":\"256Mi\"}}}"
 - name: vpc-cni
+  version: v1.23.2-eksbuild.8
   attachPolicyARNs:
     - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
   resolveConflicts: overwrite
 - name: coredns
+  version: v1.14.7-eksbuild.28
   resolveConflicts: overwrite
 - name: kube-proxy
+  version: v1.36.0-eksbuild.60
   resolveConflicts: overwrite
 - name: metrics-server
+  version: v0.9.0-eksbuild.14
   resolveConflicts: overwrite

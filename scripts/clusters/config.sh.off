@@ -8,11 +8,11 @@ export ENVIRONMENT=default
 # Required
 export ENVIRONMENT_VERSION=v1
 # Required
-export EKS_VERSION=1.35
+export EKS_VERSION=1.36
 # Required
-export EKSCTL_VERSION=v0.224.0
+export EKSCTL_VERSION=v0.231.0
 # Required (use versions specified in https://docs.aws.amazon.com/eks/latest/userguide/install-kubectl.html)
-export KUBECTL_VERSION=v1.35.0
+export KUBECTL_VERSION=v1.36.6
 # Required
 export K9S_VERSION=v0.50.18
 # Required (default 9pm ET)
@@ -82,6 +82,10 @@ export REPLICATE_SECRETS=true
 export ENABLE_BLOBS_BUCKETS_CREATION=true
 # Required (true or false). Recommended to be true on Prod envs
 export ENABLE_BACKUP_BUCKETS_CREATION=false
+# Optional (true or false). Site bucket replication also requires backup buckets to be created.
+export ENABLE_SITE_BUCKET_REPLICATION=false
+# Optional (true or false). Blobs replication also requires blobs buckets, BackupRegion, and a backup blobs bucket name.
+export ENABLE_BLOBS_BUCKET_REPLICATION=false
 # Required (true or false). Recommended true in multi-region delivery environments
 export ENABLE_S3_ORIGIN_FAILOVER=false
 # Optional (true or false). When true, creates a Web ACL for the site (SSO) CloudFront.
@@ -156,6 +160,10 @@ export CONFIG_ENCRYPTION_SALT=
 export SYSTEM_ENCRYPTION_KEY=
 # Empty to auto-generate
 export SYSTEM_ENCRYPTION_SALT=
+# Empty to auto-generate. Authoring and Delivery share this Secrets Manager secret.
+export PREVIEW_TOKEN_KEY=
+# Empty to auto-generate. Authoring and Delivery share this Secrets Manager secret.
+export PREVIEW_TOKEN_SALT=
 # Required
 export CRAFTERCMS_NAMESPACE=craftercms
 # Empty to auto-generate
@@ -196,10 +204,28 @@ export GIT_HTTPS_SERVER_PASSWORD=
 export GIT_HTTPS_SERVER_DOMAIN_NAME=
 # Required in supplementary regions, if GENERATE_GIT_HTTPS_SERVER_SECRETS = true
 export GIT_HTTPS_SERVER_REPOS_URL=https://$GIT_HTTPS_SERVER_DOMAIN_NAME/repos/sites
-# Required
+# Required. Public Authoring hostname. The Authoring Tomcat STUDIO_URL is
+# https://$AUTHORING_DOMAIN_NAME/studio. The Deployer keeps its own localhost Studio URL.
 export AUTHORING_DOMAIN_NAME=
+# Optional (true or false). false does not create AuthoringWebACL on a new resources stack.
+export AUTHORING_WEB_ACL_ENABLED=true
+# Required when AUTHORING_WEB_ACL_ENABLED is true. Single quotes. No commas. Do not use ^$ .
+# Anchored regex after lowercasing. Put every hostname alternative inside one group between ^ and $.
+# When the ACL is disabled and this is empty, the script passes ^$ .
+# Example: export AUTHORING_WEB_ACL_VALID_HOST_HEADER_REGEX='^(authoring\.example\.com|support\.example\.com)(:443)?$'
+export AUTHORING_WEB_ACL_VALID_HOST_HEADER_REGEX=
+# Count while reviewing sampled requests. Set to Block after validation.
+export AUTHORING_INVALID_HOST_ACTION=Count
 # Required
 export DELIVERY_DOMAIN_NAME=
+# Optional. internet-facing (default) or internal. Choose this when the cluster is created.
+# internal places the single Delivery ingress in private subnets. CloudFront reaches that ALB
+# through a VPC origin. Setup then omits the Route 53 delivery health check.
+# Do not change this after the Delivery ALB exists.
+export DELIVERY_LB_SCHEME=internet-facing
+# Optional override. kubernetes/init-config-files.sh uses the resources stack output when that output exists.
+# Empty keeps the public CloudFront origin.
+export DELIVERY_LB_VPC_ORIGIN_ID=
 # Required. Add token= (with no value) to dynamically add a Crafter management token parameter
 export AUTHORING_HEALTHCHECK_PATH='/studio/api/2/monitoring/status.json?token='
 # Required. Add token= (with no value) to dynamically add a Crafter management token parameter

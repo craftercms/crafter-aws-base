@@ -998,7 +998,7 @@ Resources:
     Properties:
       ApplyOnTransformedLogs: false
       FilterName: {{cluster_name}}-OOMMetricFilter
-      FilterPattern: "OutOfMemoryError"
+      FilterPattern: '"java.lang.OutOfMemoryError"'
       LogGroupName: "/aws/containerinsights/{{cluster_name}}/application"
       MetricTransformations:
         - MetricValue: "1"

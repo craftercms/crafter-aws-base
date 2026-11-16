@@ -36,6 +36,38 @@ if [ -z "$resources_stack" ] || [ "$resources_stack" == "null" ]; then
     bastion_ami_id=$(aws ssm get-parameter --name /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64 \
         --query 'Parameter.Value' --output text)
 
+    case "${AUTHORING_WEB_ACL_ENABLED:-true}" in
+        true|false) ;;
+        *)
+            cecho "AUTHORING_WEB_ACL_ENABLED must be true or false" "error"
+            exit 1
+            ;;
+    esac
+    # The regex parameter has no default, so CloudFormation requires a value even when
+    # AuthoringWebAclEnabled is false and the WebACL is not created. ^$ matches nothing.
+    authoring_host_regex="${AUTHORING_WEB_ACL_VALID_HOST_HEADER_REGEX:-}"
+    if [ "${AUTHORING_WEB_ACL_ENABLED:-true}" = "false" ]; then
+        if [ -z "$authoring_host_regex" ]; then
+            authoring_host_regex='^$'
+        fi
+    elif [ -z "$authoring_host_regex" ] || [ "$authoring_host_regex" = '^$' ]; then
+        cecho "AUTHORING_WEB_ACL_VALID_HOST_HEADER_REGEX is required when AUTHORING_WEB_ACL_ENABLED is true. ^$ matches no host, so the rule would match every request." "error"
+        exit 1
+    fi
+    case "${AUTHORING_INVALID_HOST_ACTION:-Count}" in
+        Count|Block) ;;
+        *)
+            cecho "AUTHORING_INVALID_HOST_ACTION must be Count or Block" "error"
+            exit 1
+            ;;
+    esac
+    case "$authoring_host_regex" in
+        *,*)
+            cecho "AUTHORING_WEB_ACL_VALID_HOST_HEADER_REGEX cannot contain a comma. create-stack splits parameter values on commas." "error"
+            exit 1
+            ;;
+    esac
+
     aws cloudformation create-stack --stack-name $RESOURCES_STACK_NAME --capabilities CAPABILITY_NAMED_IAM \
         --template-body file://$RESOURCES_STACK_CONFIG_FILE --parameters \
         ParameterKey=VpcId,ParameterValue=$vpc_id \
@@ -46,7 +78,10 @@ if [ -z "$resources_stack" ] || [ "$resources_stack" == "null" ]; then
         ParameterKey=BackupRegionBucketNamePrefix,ParameterValue=$S3_BACKUP_REGION_BUCKET_NAME_PREFIX \
         ParameterKey=OpenSearchSingleNodeCluster,ParameterValue=$OPEN_SEARCH_SINGLE_NODE_CLUSTER \
         ParameterKey=OpenSearchInstanceType,ParameterValue=$OPEN_SEARCH_INSTANCE_TYPE \
-        ParameterKey=OpenSearchVolumeSize,ParameterValue=$OPEN_SEARCH_VOLUME_SIZE
+        ParameterKey=OpenSearchVolumeSize,ParameterValue=$OPEN_SEARCH_VOLUME_SIZE \
+        ParameterKey=AuthoringWebAclEnabled,ParameterValue=${AUTHORING_WEB_ACL_ENABLED:-true} \
+        ParameterKey=AuthoringWebACLValidHostHeaderRegex,ParameterValue="${authoring_host_regex}" \
+        ParameterKey=AuthoringInvalidHostAction,ParameterValue="${AUTHORING_INVALID_HOST_ACTION:-Count}"
 
     cecho "Waiting for resources stack to be created..." "info"
 
@@ -57,12 +92,28 @@ fi
 
 healthchecks_stack=$(aws cloudformation describe-stacks --region 'us-east-1' --stack-name $HEALTHCHECKS_STACK_NAME | jq '.Stacks[0]')
 if [ -z "$healthchecks_stack" ] || [ "$healthchecks_stack" == "null" ]; then
+    delivery_lb_scheme="${DELIVERY_LB_SCHEME:-internet-facing}"
+    case "$delivery_lb_scheme" in
+        internet-facing|internal) ;;
+        *)
+            cecho "DELIVERY_LB_SCHEME must be internet-facing or internal" "error"
+            exit 1
+            ;;
+    esac
+    # Route 53 health checkers are outside the VPC. An empty hostname omits
+    # DeliveryHealthCheck and DeliveryHealthcheckAlarm.
+    delivery_healthcheck_hostname="$DELIVERY_DOMAIN_NAME"
+    if [ "$delivery_lb_scheme" = "internal" ]; then
+        delivery_healthcheck_hostname=""
+        cecho "DELIVERY_LB_SCHEME is internal. Omitting the Route 53 delivery health check." "info"
+    fi
+
     if [ "$AWS_DEFAULT_REGION" == "us-east-1" ]; then
         aws cloudformation create-stack --stack-name $HEALTHCHECKS_STACK_NAME --capabilities CAPABILITY_NAMED_IAM \
             --template-body file://$HEALTHCHECKS_STACK_CONFIG_FILE --parameters \
             ParameterKey=AuthoringHealthcheckHostname,ParameterValue=$AUTHORING_DOMAIN_NAME \
             ParameterKey=AuthoringHealthcheckPath,ParameterValue=${AUTHORING_HEALTHCHECK_PATH/token=/"token=$CRAFTER_MANAGEMENT_TOKEN"} \
-            ParameterKey=DeliveryHealthcheckHostname,ParameterValue=$DELIVERY_DOMAIN_NAME \
+            ParameterKey=DeliveryHealthcheckHostname,ParameterValue="$delivery_healthcheck_hostname" \
             ParameterKey=DeliveryHealthcheckPath,ParameterValue=${DELIVERY_HEALTHCHECK_PATH/token=/"token=$CRAFTER_MANAGEMENT_TOKEN"} \
             ParameterKey=AlarmsSlackChannelHookUrl,ParameterValue=${ALARMS_SLACK_CHANNEL_HOOK_URL:-} \
             ParameterKey=AlarmsEmailAddress,ParameterValue=$ALARMS_EMAIL_ADDRESS \
@@ -73,7 +124,7 @@ if [ -z "$healthchecks_stack" ] || [ "$healthchecks_stack" == "null" ]; then
             --capabilities CAPABILITY_NAMED_IAM --template-body file://$HEALTHCHECKS_STACK_CONFIG_FILE --parameters \
             ParameterKey=AuthoringHealthcheckHostname,ParameterValue=$AUTHORING_DOMAIN_NAME \
             ParameterKey=AuthoringHealthcheckPath,ParameterValue=${AUTHORING_HEALTHCHECK_PATH/token=/"token=$CRAFTER_MANAGEMENT_TOKEN"} \
-            ParameterKey=DeliveryHealthcheckHostname,ParameterValue=$DELIVERY_DOMAIN_NAME \
+            ParameterKey=DeliveryHealthcheckHostname,ParameterValue="$delivery_healthcheck_hostname" \
             ParameterKey=DeliveryHealthcheckPath,ParameterValue=${DELIVERY_HEALTHCHECK_PATH/token=/"token=$CRAFTER_MANAGEMENT_TOKEN"} \
             ParameterKey=AlarmsSlackChannelHookUrl,ParameterValue=${ALARMS_SLACK_CHANNEL_HOOK_URL:-} \
             ParameterKey=AlarmsEmailAddress,ParameterValue=$ALARMS_EMAIL_ADDRESS \

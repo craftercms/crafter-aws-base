@@ -44,6 +44,16 @@ cd $CLUSTER_HOME
 
 cecho "Initializing config files for cluster $CLUSTER_NAME..." "info"
 
+for replication_var in ENABLE_SITE_BUCKET_REPLICATION ENABLE_BLOBS_BUCKET_REPLICATION; do
+  case "${!replication_var}" in
+    true|false) ;;
+    *)
+      cecho "${replication_var} must be set to true or false. Add it to the cluster config.sh. Set it to true for sites that replicate today." "error"
+      exit 1
+      ;;
+  esac
+done
+
 find . -type f ! -name setup.sh -exec sed -i "s/{{client_id}}/$CLIENT_ID/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s/{{eks_version}}/$EKS_VERSION/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s/{{aws_account_id}}/$AWS_ACCOUNT_ID/g" {} \;
@@ -57,6 +67,8 @@ find . -type f ! -name setup.sh -exec sed -i "s/{{delivery_worker_instance_type}
 find . -type f ! -name setup.sh -exec sed -i "s/{{delivery_instance_count}}/$DELIVERY_INSTANCE_COUNT/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s/{{enable_blobs_buckets_creation}}/$ENABLE_BLOBS_BUCKETS_CREATION/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s/{{enable_backup_buckets_creation}}/$ENABLE_BACKUP_BUCKETS_CREATION/g" {} \;
+find . -type f ! -name setup.sh -exec sed -i "s/{{enable_site_bucket_replication}}/$ENABLE_SITE_BUCKET_REPLICATION/g" {} \;
+find . -type f ! -name setup.sh -exec sed -i "s/{{enable_blobs_bucket_replication}}/$ENABLE_BLOBS_BUCKET_REPLICATION/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s/{{enable_s3_origin_failover}}/$ENABLE_S3_ORIGIN_FAILOVER/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s/{{enable_site_waf}}/$ENABLE_SITE_WAF/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s/{{site_waf_rate_limit_per_ip}}/$SITE_WAF_RATE_LIMIT_PER_IP/g" {} \;
@@ -109,6 +121,30 @@ find . -type f ! -name setup.sh -exec sed -i "s~{{alarms_email_address}}~${ALARM
 find . -type f ! -name setup.sh -exec sed -i "s~{{notifications_email_address}}~${NOTIFICATIONS_EMAIL_ADDRESS:-cloud-ops@craftercms.com}~g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s/{{argocd_project}}/${ARGOCD_PROJECT}/g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s~{{delivery_domain_name}}~${DELIVERY_DOMAIN_NAME}~g" {} \;
+find . -type f ! -name setup.sh -exec sed -i "s~{{authoring_domain_name}}~${AUTHORING_DOMAIN_NAME}~g" {} \;
+
+delivery_lb_scheme="${DELIVERY_LB_SCHEME:-internet-facing}"
+case "$delivery_lb_scheme" in
+  internet-facing|internal)
+    ;;
+  *)
+    cecho "DELIVERY_LB_SCHEME must be internet-facing or internal" "error"
+    exit 1
+    ;;
+esac
+
+if [ "$delivery_lb_scheme" = "internal" ]; then
+  delivery_lb_name="${CLUSTER_NAME}-delivery"
+  if [ "${#delivery_lb_name}" -gt 32 ]; then
+    cecho "Delivery load balancer name ${delivery_lb_name} is longer than 32 characters" "error"
+    exit 1
+  fi
+  find . -type f ! -name setup.sh -exec sed -i "s~{{delivery_lb_name_annotation}}~    alb.ingress.kubernetes.io/load-balancer-name: ${delivery_lb_name}~" {} \;
+else
+  find . -type f ! -name setup.sh -exec sed -i "/{{delivery_lb_name_annotation}}/d" {} \;
+  find . -type f ! -name setup.sh -exec sed -i "/{{delivery_lb_subnets_annotation}}/d" {} \;
+fi
+find . -type f ! -name setup.sh -exec sed -i "s~{{delivery_lb_scheme}}~${delivery_lb_scheme}~g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s~{{prod_env}}~$prod_env~g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s~{{upgrade_nodes_cron}}~${UPGRADE_NODES_CRON}~g" {} \;
 find . -type f ! -name setup.sh -exec sed -i "s~{{upgrade_nodes_cron_tz}}~${UPGRADE_NODES_CRON_TZ}~g" {} \;

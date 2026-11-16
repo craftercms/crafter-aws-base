@@ -38,6 +38,20 @@ if [ -z "$SYSTEM_ENCRYPTION_SALT" ]; then
     cecho "System encryption salt generated: $SYSTEM_ENCRYPTION_SALT"
 fi
 
+if [ -z "$PREVIEW_TOKEN_KEY" ]; then
+    PREVIEW_TOKEN_KEY=$(gen_random_pswd 16)
+    update_var 'PREVIEW_TOKEN_KEY' "$PREVIEW_TOKEN_KEY"
+
+    cecho "Preview token key generated: $PREVIEW_TOKEN_KEY"
+fi
+
+if [ -z "$PREVIEW_TOKEN_SALT" ]; then
+    PREVIEW_TOKEN_SALT=$(gen_random_pswd 16)
+    update_var 'PREVIEW_TOKEN_SALT' "$PREVIEW_TOKEN_SALT"
+
+    cecho "Preview token salt generated: $PREVIEW_TOKEN_SALT"
+fi
+
 if [ -z "$ARGOCD_PASSWORD" ]; then
     ARGOCD_PASSWORD=$(gen_random_pswd 16)
     update_var 'ARGOCD_PASSWORD' "$ARGOCD_PASSWORD"
@@ -93,6 +107,11 @@ cecho "Saving system encryption key and salt secret..." "info"
 save_secret_string "system-encryption-key-salt" \
     "$CLUSTER_NAME system encryption key and salt" \
     "{\"key\": \"$SYSTEM_ENCRYPTION_KEY\", \"salt\": \"$SYSTEM_ENCRYPTION_SALT\"}"
+
+cecho "Saving preview token key and salt secret..." "info"
+save_secret_string "preview-token-key-salt" \
+    "$CLUSTER_NAME preview token key and salt" \
+    "{\"key\": \"$PREVIEW_TOKEN_KEY\", \"salt\": \"$PREVIEW_TOKEN_SALT\"}"
 
 cecho "Saving ArgoCD credentials secret..." "info"
 save_secret_string "argocd-credentials" \

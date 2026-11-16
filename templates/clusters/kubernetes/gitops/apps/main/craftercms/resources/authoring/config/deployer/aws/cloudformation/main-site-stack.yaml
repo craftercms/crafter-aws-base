@@ -44,16 +44,22 @@ Parameters:
       - false
   EnableSiteBucketReplication:
     Type: String
-    Default: true
+    Default: 'false'
     AllowedValues:
-      - true
-      - false
+      - 'true'
+      - 'false'
+    Description: >-
+      Replicate the site bucket only when true and backup buckets are created
+      (BackupRegion set, CreateBackupBuckets true, and this is not a test stack).
   EnableBlobsBucketReplication:
     Type: String
-    Default: true
+    Default: 'false'
     AllowedValues:
-      - true
-      - false
+      - 'true'
+      - 'false'
+    Description: >-
+      Replicate the blobs bucket only when true, blobs buckets exist, BackupRegion
+      is set, and S3BackupBlobsBucketName is passed.
   EnableS3OriginFailover:
     Type: String
     Default: false
@@ -79,6 +85,12 @@ Parameters:
     Default: ''
   DeliveryLBDomainName:
     Type: String
+  DeliveryLBVpcOriginId:
+    Type: String
+    Default: ''
+    Description: >-
+      CloudFront VPC origin ID for an internal Delivery ALB. Empty keeps the
+      public custom origin.
   CloudFrontOriginAccessIdentityId:
     Type: String
   CloudFrontCertificateArn:
@@ -186,11 +198,11 @@ Conditions:
   ShouldCreateBackupBuckets:
     !And [!Not [!Equals [!Ref BackupRegion, '']], !Equals [true, !Ref CreateBackupBuckets], !Equals [false, !Ref TestStack]]
   ShouldEnableSiteReplication:
-    !And [Condition: ShouldCreateSiteBucket, !Equals [true, !Ref EnableSiteBucketReplication], !Or [Condition: ShouldCreateBackupBuckets, !Not [!Equals [!Ref S3BackupSiteBucketName, '']]]]
-  ShouldCreateBackupBlobsBucket:
+    !And [!Equals ['true', !Ref EnableSiteBucketReplication], Condition: ShouldCreateBackupBuckets]
+  ShouldCreateBackupBlobsBucketResource:
     !And [Condition: ShouldCreateBackupBuckets, Condition: ShouldCreateBlobsBuckets]
   ShouldEnableBlobsReplication:
-    !And [Condition: ShouldCreateBlobsBuckets, !Equals [true, !Ref EnableBlobsBucketReplication], !Or [Condition: ShouldCreateBackupBlobsBucket, !Not [!Equals [!Ref S3BackupBlobsBucketName, '']]]]
+    !And [!Equals ['true', !Ref EnableBlobsBucketReplication], Condition: ShouldCreateBlobsBuckets, !Not [!Equals [!Ref BackupRegion, '']], !Not [!Equals [!Ref S3BackupBlobsBucketName, '']]]
   ShouldEnableS3OriginFailover:
     !And [!Not [!Equals [!Ref BackupRegion, '']], !Not [!Equals [!Ref S3BackupSiteBucketName, '']], !Equals [true, !Ref EnableS3OriginFailover]]    
   LBOriginCachePolicyIdSpecified:
@@ -211,6 +223,8 @@ Conditions:
     !And [!Equals [true, !Ref EnableCloudFrontLogging], !Not [!Equals [!Ref CloudFrontLoggingS3BucketName, '']]]
   AuthAtEdgeLambdaArnSpecified:
     !Not [!Equals [!Ref AuthAtEdgeLambdaArn, '']]
+  DeliveryLBVpcOriginIdSpecified:
+    !Not [!Equals [!Ref DeliveryLBVpcOriginId, '']]
   SiteWafEnabled:
     !Equals [true, !Ref EnableSiteWaf]
   ShouldEnableSiteWafBotControl:
@@ -252,11 +266,10 @@ Resources:
       ReplicationConfiguration:
           !If
           - ShouldEnableSiteReplication
-          - 
-            Role: !Ref S3ReplicationRoleArn
+          - Role: !Ref S3ReplicationRoleArn
             Rules:
               - Destination:
-                  Bucket: !If [ShouldCreateBackupBuckets, !GetAtt [S3BackupSiteBucket, Arn], !Sub 'arn:aws:s3:::${S3BackupSiteBucketName}']
+                  Bucket: !GetAtt [S3BackupSiteBucket, Arn]
                   StorageClass: STANDARD
                 Id: Backup
                 Prefix: ''
@@ -288,7 +301,7 @@ Resources:
 
   S3BackupBlobsBucket:
     Type: Custom::LambdaTrigger
-    Condition: ShouldCreateBackupBlobsBucket
+    Condition: ShouldCreateBackupBlobsBucketResource
     Properties:
       ServiceToken: !Ref S3BackupBucketLambdaArn
       BackupBucketName: !Ref S3BackupBlobsBucketName
@@ -325,7 +338,7 @@ Resources:
             Role: !Ref S3ReplicationRoleArn
             Rules:
               - Destination:
-                  Bucket: !If [ShouldCreateBackupBlobsBucket, !GetAtt [S3BackupBlobsBucket, Arn], !Sub 'arn:aws:s3:::${S3BackupBlobsBucketName}']
+                  Bucket: !If [ShouldCreateBackupBlobsBucketResource, !GetAtt [S3BackupBlobsBucket, Arn], !Sub 'arn:aws:s3:::${S3BackupBlobsBucketName}']
                   StorageClass: STANDARD
                 Id: Backup
                 Prefix: ''
@@ -488,11 +501,19 @@ Resources:
         Origins:
           - DomainName: !Ref DeliveryLBDomainName
             Id: !Sub 'LB-${DeliveryLBDomainName}'
-            CustomOriginConfig:
-              OriginKeepaliveTimeout: !Ref LBOriginKeepaliveTimeout
-              OriginReadTimeout: !Ref LBOriginReadTimeout
-              OriginProtocolPolicy: https-only
-              OriginSSLProtocols: ['TLSv1', 'TLSv1.1', 'TLSv1.2']
+            CustomOriginConfig: !If
+              - DeliveryLBVpcOriginIdSpecified
+              - !Ref 'AWS::NoValue'
+              - OriginKeepaliveTimeout: !Ref LBOriginKeepaliveTimeout
+                OriginReadTimeout: !Ref LBOriginReadTimeout
+                OriginProtocolPolicy: https-only
+                OriginSSLProtocols: ['TLSv1', 'TLSv1.1', 'TLSv1.2']
+            VpcOriginConfig: !If
+              - DeliveryLBVpcOriginIdSpecified
+              - VpcOriginId: !Ref DeliveryLBVpcOriginId
+                OriginKeepaliveTimeout: !Ref LBOriginKeepaliveTimeout
+                OriginReadTimeout: !Ref LBOriginReadTimeout
+              - !Ref 'AWS::NoValue'
             OriginCustomHeaders:
               - HeaderName: X-Crafter-Site
                 HeaderValue: !Ref SiteName

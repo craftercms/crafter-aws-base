@@ -44,6 +44,8 @@ target:
         templateParams:
           CreateBlobsBuckets:  ${aws.cloudformation.enableBlobsBucketsCreation}
           CreateBackupBuckets:  ${aws.cloudformation.enableBackupBucketsCreation}
+          EnableSiteBucketReplication: ${aws.cloudformation.enableSiteBucketReplication}
+          EnableBlobsBucketReplication: ${aws.cloudformation.enableBlobsBucketReplication}
           EnableS3OriginFailover:  ${aws.cloudformation.enableS3OriginFailover}      
           SiteName: ${target.siteName}
           EnvironmentVersion: ${environmentVersion}
@@ -55,6 +57,7 @@ target:
           S3BlobsBucketName: ${aws.cloudformation.s3BlobsBucketName}
           S3BackupBlobsBucketName: ${aws.cloudformation.s3BackupBlobsBucketName}
           DeliveryLBDomainName: ${aws.cloudformation.deliveryLBDomainName}
+          DeliveryLBVpcOriginId: ${aws.cloudformation.deliveryLBVpcOriginId}
           CloudFrontCertificateArn: ${aws.cloudformation.cloudfrontCertificateArn}
           AlternateCloudFrontDomainNames: ${aws.cloudformation.alternateCloudFrontDomainNames}
           CloudFrontSecretHeaderName: ${aws.cloudformation.cloudfrontSecretHeaderName}
@@ -77,6 +80,8 @@ target:
         templateParams:
           CreateBlobsBuckets:  ${aws.cloudformation.enableBlobsBucketsCreation}
           CreateBackupBuckets:  ${aws.cloudformation.enableBackupBucketsCreation}
+          EnableSiteBucketReplication: ${aws.cloudformation.enableSiteBucketReplication}
+          EnableBlobsBucketReplication: ${aws.cloudformation.enableBlobsBucketReplication}
           EnableS3OriginFailover:  ${aws.cloudformation.enableS3OriginFailover}      
           SiteName: ${target.siteName}
           EnvironmentVersion: ${environmentVersion}
@@ -88,6 +93,7 @@ target:
           S3BlobsBucketName: ${aws.cloudformation.s3BlobsBucketName}
           S3BackupBlobsBucketName: ${aws.cloudformation.s3BackupBlobsBucketName}
           DeliveryLBDomainName: ${aws.cloudformation.deliveryLBDomainName}
+          DeliveryLBVpcOriginId: ${aws.cloudformation.deliveryLBVpcOriginId}
           CloudFrontCertificateArn: ${aws.cloudformation.cloudfrontCertificateArn}
           AlternateCloudFrontDomainNames: ${aws.cloudformation.alternateCloudFrontDomainNames}
           CloudFrontSecretHeaderName: ${aws.cloudformation.cloudfrontSecretHeaderName}
