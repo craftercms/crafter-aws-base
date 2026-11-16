@@ -10,6 +10,8 @@ aws:
     stackCapabilities: ${env:CLOUDFORMATION_STACK_CAPABILITIES} 
     enableBlobsBucketsCreation: ${env:ENABLE_BLOBS_BUCKETS_CREATION}
     enableBackupBucketsCreation: ${env:ENABLE_BACKUP_BUCKETS_CREATION}
+    enableSiteBucketReplication: ${env:ENABLE_SITE_BUCKET_REPLICATION}
+    enableBlobsBucketReplication: ${env:ENABLE_BLOBS_BUCKET_REPLICATION}
     enableS3OriginFailover: ${env:ENABLE_S3_ORIGIN_FAILOVER}
     enableSiteWaf: ${env:ENABLE_SITE_WAF}
     siteWafRateLimitPerIp: ${env:SITE_WAF_RATE_LIMIT_PER_IP}
@@ -20,6 +22,7 @@ aws:
     s3BucketNamePrefix: ${env:S3_BUCKET_NAME_PREFIX}
     s3BackupBucketNamePrefix: ${env:S3_BACKUP_BUCKET_NAME_PREFIX}
     deliveryLBDomainName: ${env:DELIVERY_LB_DOMAIN_NAME}
+    deliveryLBVpcOriginId: ${env:DELIVERY_LB_VPC_ORIGIN_ID}
     cloudfrontSecretHeaderName: ${env:CLOUDFRONT_SECRET_HEADER_NAME}
     cloudfrontSecretHeaderValue: ${env:CLOUDFRONT_SECRET_HEADER_VALUE}
     cloudFrontOriginAccessIdentityId: ${env:CLOUDFRONT_ORIGIN_ACCESS_IDENTITY_ID}

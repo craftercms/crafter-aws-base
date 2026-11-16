@@ -1,0 +1,15 @@
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: preview-token-key-salt
+spec:
+  secretStoreRef:
+    name: default-cluster-secret-store
+    kind: ClusterSecretStore
+  target:
+    name: preview-token-key-salt
+    creationPolicy: Owner
+  refreshInterval: "1m"
+  dataFrom:
+    - extract:
+        key: "{{cluster_name}}/preview-token-key-salt"

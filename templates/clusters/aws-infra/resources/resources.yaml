@@ -82,6 +82,38 @@ Parameters:
     AllowedValues:
       - true
       - false
+  AuthoringWebACLValidHostHeaderRegex:
+    Type: String
+    Description: >-
+      Anchored regex of allowed Authoring Host header values, matched after lowercasing.
+      Include every hostname that reaches an ALB using this WebACL, including the support
+      ingress. Put every hostname alternative inside one group between ^ and $.
+      Example: ^(authoring\.example\.com|support\.example\.com)(:443)?$
+      Still required when AuthoringWebAclEnabled is false. Pass ^$ in that case.
+    AllowedPattern: '^\^.*\$$'
+    ConstraintDescription: Must be an anchored regex, starting with ^ and ending with $.
+  AuthoringInvalidHostAction:
+    Type: String
+    Default: Count
+    AllowedValues:
+      - Count
+      - Block
+    Description: >-
+      Count while reviewing sampled requests for block-invalid-host-headers.
+      Set to Block after legitimate traffic is confirmed.
+  DeliveryLBArn:
+    Type: String
+    Default: ''
+    Description: >-
+      ARN of the internal Delivery ALB. Empty skips the CloudFront VPC origin,
+      which is the public Delivery LB setup.
+  CloudFrontVpcOriginSecurityGroupId:
+    Type: String
+    Default: ''
+    Description: >-
+      ID of the CloudFront-managed CloudFront-VPCOrigins-Service-SG. Empty, or a
+      value set without DeliveryLBArn, keeps the public 80/443 rules on the
+      Delivery frontend security group.
 
 Conditions:
   UseBackupRegion:
@@ -92,6 +124,23 @@ Conditions:
     !Equals [true, !Ref OpenSearchSoftwareAutoUpdateEnabled]
   AuthoringWebAclEnabled:
     !Equals [true, !Ref AuthoringWebAclEnabled]
+  BlockInvalidAuthoringHost:
+    !Equals [!Ref AuthoringInvalidHostAction, Block]
+  DeliveryVpcOriginEnabled:
+    !Not [!Equals [!Ref DeliveryLBArn, '']]
+  DeliveryVpcOriginSgSpecified:
+    !And
+      - !Condition DeliveryVpcOriginEnabled
+      - !Not [!Equals [!Ref CloudFrontVpcOriginSecurityGroupId, '']]
+
+Rules:
+  AuthoringHostRegexWhenAclEnabled:
+    RuleCondition: !Equals [true, !Ref AuthoringWebAclEnabled]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref AuthoringWebACLValidHostHeaderRegex, '^$']]
+        AssertDescription: >-
+          AuthoringWebACLValidHostHeaderRegex must not be ^$ when AuthoringWebAclEnabled
+          is true. That value matches no host, so block-invalid-host-headers matches every request.
 
 Resources:
 # S3 Log-forwarding config
@@ -195,19 +244,49 @@ Resources:
       GroupDescription: Frontend sg for delivery LB in {{cluster_name}}
       VpcId: !Ref VpcId
       SecurityGroupIngress:
-        - FromPort: '443'
-          IpProtocol: tcp
-          ToPort: '443'
-          CidrIp: 0.0.0.0/0
-        - FromPort: '80'
-          IpProtocol: tcp
-          ToPort: '80'
-          CidrIp: 0.0.0.0/0
+        - !If
+          - DeliveryVpcOriginSgSpecified
+          - FromPort: '443'
+            IpProtocol: tcp
+            ToPort: '443'
+            SourceSecurityGroupId: !Ref CloudFrontVpcOriginSecurityGroupId
+          - FromPort: '443'
+            IpProtocol: tcp
+            ToPort: '443'
+            CidrIp: 0.0.0.0/0
+        - !If
+          - DeliveryVpcOriginSgSpecified
+          - !Ref 'AWS::NoValue'
+          - FromPort: '80'
+            IpProtocol: tcp
+            ToPort: '80'
+            CidrIp: 0.0.0.0/0
       SecurityGroupEgress:
         - IpProtocol: -1
           FromPort: 0
           ToPort: 0
           CidrIp: 0.0.0.0/0
+
+  DeliveryVpcOrigin:
+    Type: AWS::CloudFront::VpcOrigin
+    Condition: DeliveryVpcOriginEnabled
+    Properties:
+      VpcOriginEndpointConfig:
+        Name: {{cluster_name}}-delivery
+        Arn: !Ref DeliveryLBArn
+        HTTPPort: 80
+        HTTPSPort: 443
+        OriginProtocolPolicy: https-only
+        OriginSSLProtocols:
+          - TLSv1.2
+        IpAddressType: ipv4
+      Tags:
+        - Key: Name
+          Value: {{cluster_name}}-delivery-vpc-origin
+        - Key: craftercms:environment
+          Value: {{environment}}
+        - Key: craftercms:prod
+          Value: {{prod_env}}
 
   AuthoringWebACL:
     Type: AWS::WAFv2::WebACL
@@ -223,8 +302,29 @@ Resources:
       Scope:
         "REGIONAL"
       Rules: 
-        - Name: layer-7-anti-ddos
+        - Name: block-invalid-host-headers
           Priority: 0
+          Action: !If
+            - BlockInvalidAuthoringHost
+            - Block: {}
+            - Count: {}
+          Statement:
+            NotStatement:
+              Statement:
+                RegexMatchStatement:
+                  RegexString: !Ref AuthoringWebACLValidHostHeaderRegex
+                  FieldToMatch:
+                    SingleHeader:
+                      Name: host
+                  TextTransformations:
+                    - Priority: 0
+                      Type: LOWERCASE
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: block-invalid-host-headers
+            SampledRequestsEnabled: true
+        - Name: layer-7-anti-ddos
+          Priority: 1
           OverrideAction:
             None: {}
           Statement:
@@ -244,7 +344,7 @@ Resources:
         - Name: bot-control-rules
           OverrideAction:
             None: {}
-          Priority: 1
+          Priority: 2
           Statement:
             ManagedRuleGroupStatement:
               VendorName: AWS
@@ -263,12 +363,15 @@ Resources:
                 - Name: CategoryHttpLibrary
                   ActionToUse:
                     Count: {}
+                - Name: SignalAutomatedBrowser
+                  ActionToUse:
+                    Count: {}
           VisibilityConfig:
             CloudWatchMetricsEnabled: true
             MetricName: bot-control-rules
             SampledRequestsEnabled: true
         - Name: global-rate-limit
-          Priority: 2
+          Priority: 3
           Action:
             Count: {}
           Statement:
@@ -1057,6 +1160,9 @@ Outputs:
     Value: !GetAtt DeliveryBackendSecurityGroup.GroupId
   DeliveryFrontendSecurityGroup:
     Value: !GetAtt DeliveryFrontendSecurityGroup.GroupId
+  DeliveryLBVpcOriginId:
+    Condition: DeliveryVpcOriginEnabled
+    Value: !GetAtt DeliveryVpcOrigin.Id
   DeliveryNodeGroupSecurityGroup:
     Value: !GetAtt DeliveryNodeGroupSecurityGroup.GroupId
   BastionInstanceId:

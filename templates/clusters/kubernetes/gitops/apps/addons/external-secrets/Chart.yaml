@@ -1,7 +1,7 @@
 description: External Secrets Operator and Secret Stores
 name: external-secrets
-version: 1.18
+version: 1.20
 dependencies:
   - name: external-secrets
-    version: 2.0.1
+    version: 2.14.0
     repository: https://charts.external-secrets.io

@@ -71,6 +71,119 @@ are `ENV-authoring.CLIENT_ID-(blue|green).net` and `ENV-delivery.CLIENT_ID-(blue
 6. `ALARMS_SLACK_CHANNEL_HOOK_URL` and `PAGER_DUTY_INTEGRATION_URL` are optional. When Slack is not configured, alarm notifications are sent to `ALARMS_EMAIL_ADDRESS` instead. Leave `PAGER_DUTY_INTEGRATION_URL` empty to skip PagerDuty notifications.
 7. Run the `./scripts/clusters/setup.sh` script and enter the environment's name when prompted.
 
+## Internal Delivery load balancer
+
+Leave `DELIVERY_LB_SCHEME` as `internet-facing` unless this cluster's Delivery ALB must stay off the public internet. Set it to `internal` in the cluster config before `scripts/clusters/setup.sh`. Setup renders one delivery ingress with scheme `internal` and the cluster private subnets. Subnets in availability zone IDs `use1-az3`, `usw1-az2`, `apne1-az3`, and `cac1-az3` are omitted because CloudFront VPC origins do not support them.
+
+The VPC origin talks to the ALB with `https-only` on port 443. Before the delivery ingress is synced, request an ACM certificate in the cluster region that covers `DELIVERY_DOMAIN_NAME`. In the cluster copy of `kubernetes/gitops/apps/main/craftercms/delivery-deployment.yaml`, uncomment these annotations and set the certificate ARN:
+
+```yaml
+alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS":443}]'
+alb.ingress.kubernetes.io/ssl-redirect: '443'
+alb.ingress.kubernetes.io/certificate-arn: <acm-certificate-arn>
+```
+
+Those three lines are commented out in the template. Without the listener and a certificate that matches `DELIVERY_DOMAIN_NAME`, CloudFront returns 502. After the ALB exists, create the Route 53 alias for `DELIVERY_DOMAIN_NAME` pointing at that internal ALB.
+
+Run the commands below from a shell where the cluster config is loaded, so `CLUSTER_NAME` and `AWS_DEFAULT_REGION` are set. Do not pass a fresh parameter list. Every parameter other than the one being changed stays on `UsePreviousValue=true`. Dropping `BastionAmiId` replaces the bastion. Dropping `DeliveryLBArn` later sets it back to empty and deletes the VPC origin while distributions still use it.
+
+Create the VPC origin. Leave `CloudFrontVpcOriginSecurityGroupId` unchanged. The managed security group does not exist until the origin does.
+
+```bash
+DELIVERY_LB_ARN=$(aws elbv2 describe-load-balancers \
+  --region "$AWS_DEFAULT_REGION" \
+  --names "${CLUSTER_NAME}-delivery" \
+  --query 'LoadBalancers[0].LoadBalancerArn' \
+  --output text)
+
+params=()
+while read -r key; do
+  case "$key" in
+    DeliveryLBArn)
+      params+=(ParameterKey=DeliveryLBArn,ParameterValue="$DELIVERY_LB_ARN")
+      ;;
+    *)
+      params+=(ParameterKey="$key",UsePreviousValue=true)
+      ;;
+  esac
+done < <(aws cloudformation describe-stacks \
+  --region "$AWS_DEFAULT_REGION" \
+  --stack-name "${CLUSTER_NAME}-resources" \
+  --query 'Stacks[0].Parameters[].ParameterKey' \
+  --output text | tr '\t' '\n')
+
+aws cloudformation update-stack \
+  --region "$AWS_DEFAULT_REGION" \
+  --stack-name "${CLUSTER_NAME}-resources" \
+  --use-previous-template \
+  --parameters "${params[@]}"
+
+aws cloudformation wait stack-update-complete \
+  --region "$AWS_DEFAULT_REGION" \
+  --stack-name "${CLUSTER_NAME}-resources"
+```
+
+Wait until the VPC origin status is `Deployed`:
+
+```bash
+ORIGIN_ID=$(aws cloudformation describe-stacks \
+  --region "$AWS_DEFAULT_REGION" \
+  --stack-name "${CLUSTER_NAME}-resources" \
+  --query "Stacks[0].Outputs[?OutputKey=='DeliveryLBVpcOriginId'].OutputValue" \
+  --output text)
+
+aws cloudfront get-vpc-origin \
+  --id "$ORIGIN_ID" \
+  --query 'VpcOrigin.Status' \
+  --output text
+```
+
+Then restrict the Delivery frontend security group to the CloudFront VPC origin security group in this VPC. Filter on the VPC, because every VPC with a VPC origin has a group named `CloudFront-VPCOrigins-Service-SG`.
+
+```bash
+VPC_ID=$(aws cloudformation describe-stacks \
+  --region "$AWS_DEFAULT_REGION" \
+  --stack-name "eksctl-${CLUSTER_NAME}-cluster" \
+  --query "Stacks[0].Outputs[?OutputKey=='VPC'].OutputValue" \
+  --output text)
+
+CF_VPC_ORIGIN_SG_ID=$(aws ec2 describe-security-groups \
+  --region "$AWS_DEFAULT_REGION" \
+  --filters "Name=vpc-id,Values=${VPC_ID}" "Name=group-name,Values=CloudFront-VPCOrigins-Service-SG" \
+  --query 'SecurityGroups[].GroupId' \
+  --output text)
+
+params=()
+while read -r key; do
+  case "$key" in
+    CloudFrontVpcOriginSecurityGroupId)
+      params+=(ParameterKey=CloudFrontVpcOriginSecurityGroupId,ParameterValue="$CF_VPC_ORIGIN_SG_ID")
+      ;;
+    *)
+      params+=(ParameterKey="$key",UsePreviousValue=true)
+      ;;
+  esac
+done < <(aws cloudformation describe-stacks \
+  --region "$AWS_DEFAULT_REGION" \
+  --stack-name "${CLUSTER_NAME}-resources" \
+  --query 'Stacks[0].Parameters[].ParameterKey' \
+  --output text | tr '\t' '\n')
+
+aws cloudformation update-stack \
+  --region "$AWS_DEFAULT_REGION" \
+  --stack-name "${CLUSTER_NAME}-resources" \
+  --use-previous-template \
+  --parameters "${params[@]}"
+
+aws cloudformation wait stack-update-complete \
+  --region "$AWS_DEFAULT_REGION" \
+  --stack-name "${CLUSTER_NAME}-resources"
+```
+
+Re-run `scripts/clusters/kubernetes/init-config-files.sh` so the authoring deployment receives `DELIVERY_LB_VPC_ORIGIN_ID` from the stack output, and sync authoring before creating sites.
+
+Do not change `DELIVERY_LB_SCHEME` after the Delivery ALB exists. Both clusters in a blue and green pair use the same scheme.
+
 ## Add the Crafter license (required before CrafterCMS)
 
 **Do this after cluster setup and before you sync the `craftercms` Argo CD app.** Argo CD cannot build the CrafterCMS manifests without this file.
@@ -83,6 +196,12 @@ are `ENV-authoring.CLIENT_ID-(blue|green).net` and `ENV-delivery.CLIENT_ID-(blue
 3. Commit and push the cluster config to the GitOps repository **before** continuing with the Argo CD steps below.
 
 If `crafter.lic` is missing, syncing `craftercms` fails with a kustomize error such as `crafter.lic: no such file or directory`.
+
+## Preview token secret (required before CrafterCMS)
+
+`scripts/clusters/setup.sh` runs `aws-infra/resources/create-secrets.sh`. That script creates Secrets Manager secret `$CLUSTER_NAME/preview-token-key-salt` with JSON keys `key` and `salt`, the same way it creates `config-encryption-key-salt` and `system-encryption-key-salt`. Leave `PREVIEW_TOKEN_KEY` and `PREVIEW_TOKEN_SALT` empty to auto-generate. Authoring and Delivery read the same secret.
+
+On a cluster that already ran setup, run `scripts/clusters/aws-infra/resources/create-secrets.sh` again before syncing `craftercms`. The Authoring and Delivery Tomcat containers reference Kubernetes secret `preview-token-key-salt` with a required `secretKeyRef` (`optional` is not set). Those pods do not start until External Secrets has synced the secret.
 
 ## Install Crafter CMS from ArgoCD
 

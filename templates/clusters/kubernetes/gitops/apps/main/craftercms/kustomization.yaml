@@ -3,18 +3,19 @@ kind: Kustomization
 namespace: craftercms
 images:
   - name: craftercms/authoring_tomcat
-    newTag: '4.5.1E'
+    newTag: '4.7.1E'
   - name: craftercms/deployer
-    newTag: '4.5.1E'
+    newTag: '4.7.1E'
   - name: craftercms/delivery_tomcat
-    newTag: '4.5.1E'
+    newTag: '4.7.1E'
   - name: craftercms/git_https_server
-    newTag: '4.5.1E'
+    newTag: '4.7.1E'
   - name: craftercms/logrotate
-    newTag: '4.5.1E'
+    newTag: '4.7.1E'
 resources:
   - external-secrets/mail-user-credentials.yaml
   - external-secrets/config-encryption-key-salt.yaml
+  - external-secrets/preview-token-key-salt.yaml
   - external-secrets/system-encryption-key-salt.yaml
   # Uncomment on multi-region
   # - external-secrets/git-https-server-credentials.yaml

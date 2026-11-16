@@ -5,7 +5,9 @@ metadata:
   name: delivery-ingress
   annotations:
     alb.ingress.kubernetes.io/target-type: ip
-    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/scheme: {{delivery_lb_scheme}}
+{{delivery_lb_name_annotation}}
+{{delivery_lb_subnets_annotation}}
     alb.ingress.kubernetes.io/healthcheck-port: '8080'
     alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
     alb.ingress.kubernetes.io/healthcheck-path: /api/1/monitoring/status.json?token={{crafter_management_token}}
@@ -183,6 +185,9 @@ spec:
         - name: config-encryption-key-salt
           secret:
             secretName: config-encryption-key-salt
+        - name: preview-token-key-salt
+          secret:
+            secretName: preview-token-key-salt
         - name: crafter-license
           secret:
             secretName: crafter-license
@@ -299,6 +304,16 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: config-encryption-key-salt
+                  key: salt
+            - name: CRAFTER_PREVIEW_TOKEN_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: preview-token-key-salt
+                  key: key
+            - name: CRAFTER_PREVIEW_TOKEN_SALT
+              valueFrom:
+                secretKeyRef:
+                  name: preview-token-key-salt
                   key: salt
               # Run the watcher that checks for new changes in the site buckets every 10 secs
             - name: DEPLOYMENT_EVENTS_WATCHER_CRON

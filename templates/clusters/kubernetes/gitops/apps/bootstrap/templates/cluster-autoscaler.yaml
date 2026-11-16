@@ -13,7 +13,7 @@ spec:
   source:
     repoURL: 'https://kubernetes.github.io/autoscaler'
     chart: cluster-autoscaler
-    targetRevision: 9.55.1
+    targetRevision: 9.59.0
     helm:
       values: |
         nodeSelector:
@@ -22,6 +22,8 @@ spec:
         awsRegion: {{aws_region}}
         autoDiscovery:
           clusterName: {{cluster_name}}
+        image:
+          tag: "v1.36.1"
         rbac:
           create: true
           serviceAccount:

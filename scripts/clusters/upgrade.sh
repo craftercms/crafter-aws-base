@@ -99,7 +99,8 @@ if [ "$_arg_approve" == "on" ]; then
 fi
 
 cecho "Upgrading EKS cluster to version $_arg_version..." "info"
-sed -E -i "s/version: (.*)$/version: \"$_arg_version\"/" "$CLUSTER_CONFIG"
+# Addon pins in this file are also "version:" keys. Only the cluster version may change.
+sed -E -i "/^metadata:\$/,/^[^[:space:]]/s/^(  version: ).*/\\1\"${_arg_version}\"/" "$CLUSTER_CONFIG"
 eksctl upgrade cluster -f "$CLUSTER_CONFIG" $approve_str
 
 cecho "Upgrading kube-proxy..." "info"

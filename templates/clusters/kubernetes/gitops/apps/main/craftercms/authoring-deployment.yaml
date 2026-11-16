@@ -177,6 +177,9 @@ spec:
         - name: config-encryption-key-salt
           secret:
             secretName: config-encryption-key-salt
+        - name: preview-token-key-salt
+          secret:
+            secretName: preview-token-key-salt
         - name: system-encryption-key-salt
           secret:
             secretName: system-encryption-key-salt 
@@ -355,6 +358,18 @@ spec:
                 secretKeyRef:
                   name: config-encryption-key-salt
                   key: salt
+            - name: CRAFTER_PREVIEW_TOKEN_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: preview-token-key-salt
+                  key: key
+            - name: CRAFTER_PREVIEW_TOKEN_SALT
+              valueFrom:
+                secretKeyRef:
+                  name: preview-token-key-salt
+                  key: salt
+            - name: STUDIO_URL
+              value: "https://{{authoring_domain_name}}/studio"
             - name: CRAFTER_SYSTEM_ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:
@@ -471,6 +486,8 @@ spec:
               value: "$(ENVIRONMENT_VERSION)"              
             - name: DELIVERY_LB_DOMAIN_NAME
               value: "{{delivery_domain_name}}"
+            - name: DELIVERY_LB_VPC_ORIGIN_ID
+              value: "{{delivery_lb_vpc_origin_id}}"
             - name: CLOUDFRONT_SECRET_HEADER_NAME
               value: "X-CloudFront-{{cloudfront_secret_header_name_suffix}}"
             - name: CLOUDFRONT_SECRET_HEADER_VALUE
@@ -487,6 +504,10 @@ spec:
               value: "{{enable_blobs_buckets_creation}}"
             - name: ENABLE_BACKUP_BUCKETS_CREATION
               value: "{{enable_backup_buckets_creation}}"
+            - name: ENABLE_SITE_BUCKET_REPLICATION
+              value: "{{enable_site_bucket_replication}}"
+            - name: ENABLE_BLOBS_BUCKET_REPLICATION
+              value: "{{enable_blobs_bucket_replication}}"
             - name: ENABLE_S3_ORIGIN_FAILOVER
               value: "{{enable_s3_origin_failover}}"
             - name: ENABLE_SITE_WAF
